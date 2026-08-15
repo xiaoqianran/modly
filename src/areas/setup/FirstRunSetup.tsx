@@ -52,13 +52,20 @@ function ChoosePathPanel({
   platform,
   arch,
   onConfirm,
+  onUseRemote,
 }: {
   defaultPath: string
   platform: string
   arch: string
   onConfirm: (path: string) => void
+  onUseRemote: (apiUrl: string, token: string) => Promise<void>
 }): JSX.Element {
   const [selectedPath, setSelectedPath] = useState(defaultPath || '')
+  const [remoteOpen, setRemoteOpen] = useState(false)
+  const [remoteUrl, setRemoteUrl] = useState('')
+  const [remoteToken, setRemoteToken] = useState('')
+  const [remoteErr, setRemoteErr] = useState<string | null>(null)
+  const [remoteBusy, setRemoteBusy] = useState(false)
 
   // Sync if defaultPath arrives after mount (async IPC)
   useEffect(() => {
@@ -103,6 +110,60 @@ function ChoosePathPanel({
       >
         Continue
       </button>
+
+      <button
+        type="button"
+        onClick={() => setRemoteOpen((v) => !v)}
+        className="mt-3 w-full py-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+      >
+        {remoteOpen ? 'Use a local GPU instead' : 'Use a Modal cloud backend instead'}
+      </button>
+
+      {remoteOpen && (
+        <div className="mt-3 space-y-2">
+          <input
+            value={remoteUrl}
+            onChange={(e) => { setRemoteUrl(e.target.value); setRemoteErr(null) }}
+            placeholder="https://…modly-backend-fastapi-app.modal.run"
+            spellCheck={false}
+            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700/60 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+          />
+          <input
+            type="password"
+            value={remoteToken}
+            onChange={(e) => setRemoteToken(e.target.value)}
+            placeholder="Bearer token (optional)"
+            spellCheck={false}
+            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700/60 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+          />
+          {remoteErr && <p className="text-xs text-red-400">{remoteErr}</p>}
+          <button
+            type="button"
+            disabled={remoteBusy || !remoteUrl.trim()}
+            onClick={async () => {
+              try {
+                const parsed = new URL(remoteUrl.trim())
+                if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+                  throw new Error('URL must be http(s)')
+                }
+              } catch {
+                setRemoteErr('Enter a valid Modal https URL')
+                return
+              }
+              setRemoteBusy(true)
+              try {
+                await onUseRemote(remoteUrl.trim().replace(/\/+$/, ''), remoteToken.trim())
+              } catch (err) {
+                setRemoteErr(err instanceof Error ? err.message : String(err))
+                setRemoteBusy(false)
+              }
+            }}
+            className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 rounded-lg text-sm font-medium text-zinc-100 transition-colors"
+          >
+            {remoteBusy ? 'Connecting…' : 'Connect to Modal'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -236,7 +297,7 @@ function ErrorPanel({ message }: { message: string | null }): JSX.Element {
 // ─── Main component ─────────────────────────────────────────────────────────
 
 export default function FirstRunSetup(): JSX.Element {
-  const { setupStatus, setupProgress, setupError, saveDataDir, defaultDataDir, backendStatus, backendError, platform, arch } =
+  const { setupStatus, setupProgress, setupError, saveDataDir, defaultDataDir, backendStatus, backendError, platform, arch, checkSetup } =
     useAppStore()
   const [applyingVersion, setApplyingVersion] = useState<string | null>(null)
   const isMac = platform === 'darwin'
@@ -254,7 +315,22 @@ export default function FirstRunSetup(): JSX.Element {
         return <CheckingPanel />
 
       case 'needed':
-        return <ChoosePathPanel defaultPath={defaultDataDir} platform={platform} arch={arch} onConfirm={saveDataDir} />
+        return (
+          <ChoosePathPanel
+            defaultPath={defaultDataDir}
+            platform={platform}
+            arch={arch}
+            onConfirm={saveDataDir}
+            onUseRemote={async (apiUrl, token) => {
+              await window.electron.settings.set({
+                backendMode: 'remote',
+                remoteApiUrl: apiUrl,
+                remoteApiToken: token,
+              })
+              await checkSetup()
+            }}
+          />
+        )
 
       case 'installing':
         return <InstallingPanel progress={setupProgress} />

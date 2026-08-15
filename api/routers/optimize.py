@@ -394,6 +394,38 @@ def _convert_gaussian_ply_to_splat(ply_path: Path, out_path: str) -> None:
         f.write(out.tobytes())
 
 
+@router.post("/import")
+async def import_mesh_upload(file: UploadFile = File(...)):
+    """Upload a mesh into WORKSPACE_DIR/Imports. Used by the remote gateway."""
+    filename = file.filename or "mesh.glb"
+    ext = Path(filename).suffix.lstrip(".").lower()
+    if ext not in ("glb", "obj", "stl", "ply", "splat"):
+        raise HTTPException(400, f"Unsupported format: {ext}")
+
+    imports_dir = WORKSPACE_DIR / "Imports"
+    imports_dir.mkdir(parents=True, exist_ok=True)
+    dest = imports_dir / f"{uuid.uuid4().hex}.{ext}"
+    dest.write_bytes(await file.read())
+
+    if ext in ("glb", "splat"):
+        rel = dest.relative_to(WORKSPACE_DIR).as_posix()
+        return {"url": f"/workspace/{rel}"}
+
+    result = await import_mesh_by_path(ImportByPathRequest(path=str(dest)))
+    url = result.get("url", "")
+    if url.startswith("/workspace/"):
+        return result
+    if url.startswith("/optimize/serve-file"):
+        from urllib.parse import parse_qs, unquote, urlparse
+        qs = parse_qs(urlparse(url).query)
+        src = Path(unquote(qs.get("path", [""])[0]))
+        if src.is_file():
+            out = imports_dir / f"{uuid.uuid4().hex}{src.suffix.lower()}"
+            shutil.copy2(src, out)
+            return {"url": f"/workspace/{out.relative_to(WORKSPACE_DIR).as_posix()}"}
+    return result
+
+
 @router.post("/import-by-path")
 async def import_mesh_by_path(body: ImportByPathRequest):
     file_path = Path(body.path)

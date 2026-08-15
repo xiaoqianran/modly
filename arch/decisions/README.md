@@ -8,3 +8,4 @@ single reviewable document.
 
 Current ADRs:
 - [APPLE-SILICON-SUPPORT](./APPLE-SILICON-SUPPORT.md)
+- [MODAL-REMOTE-BACKEND](./MODAL-REMOTE-BACKEND.md)
