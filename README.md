@@ -16,12 +16,69 @@ Modly is a desktop application for Windows, Linux, and Apple Silicon macOS.
 
 ---
 
+## 在 Windows 上启动（本 fork / Modal）
 
-## Download
+**不要下官方 App。** [lightningpixel/modly Releases](https://github.com/lightningpixel/modly/releases) 是官方的本地 GPU 安装包，没有这套 Modal Settings。本 fork 也还没有打好的 Windows 安装包。
 
-Head to the [Releases](../../releases/latest) page to download the latest installer for Windows, Linux, or Apple Silicon macOS.
+走 **Modal 云端 GPU** 时，本机 **不用装 CUDA、不用装 Python 后端**。Windows 只跑 Electron 窗口，推理在 Modal 上。
 
-Alternatively, you can clone the repository and run the app directly without installing:
+### 1. 本机要有的
+
+- [Node.js LTS](https://nodejs.org)（安装时勾选 npm / PATH）
+- Git
+
+### 2. 拉代码并启动
+
+PowerShell 或 cmd：
+
+```bat
+git clone https://github.com/xiaoqianran/modly.git
+cd modly
+git checkout main
+npm install
+npm run dev
+```
+
+会弹出 Electron 窗口。这就是日常启动方式，不是去 Releases 下 exe。
+
+### 3. 第一次打开
+
+选 **Use a Modal cloud backend instead**，填：
+
+- **Modal URL**：`modal deploy modal/app.py` 之后那个 `https://…--modly-backend-fastapi-app.modal.run`
+- **API token**：有就填，没有留空
+
+保存后如果还停在设置页，**关掉 App 再 `npm run dev` 一次**。Mode / URL 改完必须重启。
+
+已经进主界面了，也可以：**Settings → Application → Compute backend → Modal**，填同样的 URL，保存，重启。停留秒数（默认 60）和 GPU 卡也在这里改。
+
+### 4. 和云端的关系
+
+桌面永远只连本机 `http://127.0.0.1:8765`。Remote 模式会在这个端口起网关，转发到 Modal。打开 App **不会**叫醒 GPU。点 Generate 才会。
+
+云端默认 60s 要这次代码已经 `modal deploy` 过才生效。没 deploy 的话，桌面能开，但云端还是旧策略。计费和 deploy 见 [`docs/modal-cost.md`](docs/modal-cost.md)。
+
+### 什么时候才打 exe
+
+想给别人双击安装时，在这台 Windows 上：
+
+```bat
+npm run package
+```
+
+安装包在 `dist\`。你自己用，`npm run dev` 就够。
+
+---
+
+## Getting started
+
+Local GPU on this machine (no Modal). For the Modal overlay on Windows, use the section above instead.
+
+### Download / launch without Modal
+
+Official upstream installers: [lightningpixel/modly Releases](https://github.com/lightningpixel/modly/releases).
+
+Alternatively, clone and run without packaging:
 
 ```bash
 # Windows
@@ -31,11 +88,6 @@ launch.bat
 ./launch.sh
 ```
 
----
-
-
-
-## Getting started
 
 ### 1. Install JS dependencies
 
