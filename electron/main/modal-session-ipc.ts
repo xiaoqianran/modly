@@ -3,8 +3,10 @@
  * Classified `local` — tokens never go to Modal HTTP.
  */
 
-import { ipcMain } from 'electron'
+import { app, ipcMain } from 'electron'
 import type { ModalSessionConnectInput } from '../../src/shared/modalSession'
+import { tryResolveConnectCredentials } from '../../src/shared/modalSession'
+import { ensureModalCpuAsgi } from './modal-asgi-ensure'
 import {
   clearModalSession,
   connectModalSession,
@@ -36,9 +38,20 @@ export function setupModalSessionIpc(getBridge: () => PythonBridge | null): void
 
   ipcMain.handle('modal:session:connect', async (_event, input: ModalSessionConnectInput) => {
     const result = await connectModalSession(input ?? {})
-    if (result.ok) {
-      await applyBridge(getBridge())
+    if (!result.ok) return result
+    const creds = tryResolveConnectCredentials(input ?? {})
+    const ensured = await ensureModalCpuAsgi({
+      apiUrl: result.apiUrl,
+      tokenId: creds?.tokenId,
+      tokenSecret: creds?.tokenSecret,
+      bearerToken: (input?.bearerToken ?? '').trim(),
+      extraAppRoots: [app.getAppPath(), process.cwd()],
+    })
+    if (!ensured.ok) {
+      clearModalSession()
+      return { ok: false, error: ensured.error, ...getModalSessionPublic() }
     }
-    return result
+    await applyBridge(getBridge())
+    return { ...result, warning: ensured.warning, deployed: ensured.deployed }
   })
 }
