@@ -60,6 +60,7 @@ class ThinForkContractTests(unittest.TestCase):
 
     def test_overlay_http_owns_the_moved_routes(self) -> None:
         overlay = read("routers", "overlay_http.py")
+        self.assertIn("list_extension_catalog", overlay)
         for path in (
             "/settings/modal",
             "/extensions/catalog",

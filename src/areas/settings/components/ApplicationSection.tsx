@@ -8,6 +8,7 @@ import {
   MIN_GPU_LINGER_SECONDS,
 } from '@shared/modalPrefs'
 import { absorbModalTokenPaste, type ModalSessionPublic } from '@shared/modalSession'
+import { useExtensionsStore } from '@shared/stores/extensionsStore'
 import { Section, Card, Row, Toggle } from '@shared/ui'
 
 export function ApplicationSection(): JSX.Element {
@@ -84,6 +85,7 @@ export function ApplicationSection(): JSX.Element {
       setTokenSecret('')
       setTokenSetCommand('')
       setSessionStatus('saved')
+      void useExtensionsStore.getState().loadExtensions()
       setTimeout(() => setSessionStatus('idle'), 2500)
     } catch {
       setSessionStatus('error')
@@ -94,6 +96,7 @@ export function ApplicationSection(): JSX.Element {
   async function forgetSession() {
     const next = await window.electron.modal.clear()
     setSession(next)
+    void useExtensionsStore.getState().loadExtensions()
   }
 
   return (

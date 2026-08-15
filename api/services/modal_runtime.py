@@ -61,6 +61,31 @@ def spawn_gpu_generation(
         return SpawnResult(started=False, error=str(exc))
 
 
+_hydrate_official_spawned = False
+
+
+def reset_hydrate_spawn_for_tests() -> None:
+    global _hydrate_official_spawned
+    _hydrate_official_spawned = False
+
+
+def spawn_hydrate_official_extensions() -> bool:
+    """CPU clone of official repos onto the Volume. At most once per container."""
+    global _hydrate_official_spawned
+    if _hydrate_official_spawned or not is_modal_runtime():
+        return False
+    try:
+        import modal
+
+        fn = modal.Function.from_name(app_name(), "hydrate_official_extensions")
+        fn.spawn()
+        _hydrate_official_spawned = True
+        return True
+    except Exception as exc:  # noqa: BLE001
+        print(f"[modal] hydrate_official_extensions spawn failed: {exc}")
+        return False
+
+
 def spawn_extension_setup(ext_id: str) -> bool:
     if not use_gpu_worker():
         return False

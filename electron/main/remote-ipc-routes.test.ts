@@ -31,6 +31,18 @@ test('catalog envelope from FastAPI unwraps; incomplete-looking local models are
   assert.deepEqual(merged.map((r) => r.id), ['smoother', 'hunyuan'])
 })
 
+test('empty remote catalog keeps local model extensions', async () => {
+  const { mergeCatalogLists } = await load()
+  const merged = mergeCatalogLists(
+    [
+      { id: 'smoother', type: 'process', builtin: true },
+      { id: 'hunyuan3d-mini', type: 'model', builtin: false, nodes: [{ id: 'generate' }] },
+    ],
+    { extensions: [] },
+  ) as Array<{ id: string }>
+  assert.deepEqual(merged.map((r) => r.id), ['smoother', 'hunyuan3d-mini'])
+})
+
 test('GET /model/all is the source of truth for downloaded flags', async () => {
   const { modelAllHasId, modelAllToDownloadedList } = await load()
   const payload = [

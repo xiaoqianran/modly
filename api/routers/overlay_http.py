@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from services.extension_catalog import list_model_extension_manifests
+from services.extension_catalog import list_extension_catalog
 from services.extension_install import (
     clear_incomplete,
     download_github_tarball,
@@ -61,7 +61,7 @@ async def update_modal_prefs(body: ModalPrefsUpdate):
 async def extension_catalog():
     from services.generator_registry import EXTENSIONS_DIR
 
-    return {"extensions": list_model_extension_manifests(EXTENSIONS_DIR)}
+    return {"extensions": list_extension_catalog(EXTENSIONS_DIR)}
 
 
 @router.post("/extensions/install-from-github")

@@ -7,7 +7,9 @@ from services.modal_runtime import (
     cancel_function_call,
     hold_gpu_for_retry,
     release_gpu_pool,
+    reset_hydrate_spawn_for_tests,
     spawn_gpu_generation,
+    spawn_hydrate_official_extensions,
     stop_run_compute,
 )
 from services.run_store import reset_run_store_for_tests
@@ -22,6 +24,22 @@ class SpawnResultTests(unittest.TestCase):
     def test_cancel_without_modal_is_false(self) -> None:
         self.assertFalse(cancel_function_call("fc-1"))
         self.assertFalse(cancel_function_call(""))
+
+    def test_hydrate_spawn_is_a_no_op_off_modal(self) -> None:
+        reset_hydrate_spawn_for_tests()
+        self.assertFalse(spawn_hydrate_official_extensions())
+
+    @patch.dict("os.environ", {"MODLY_RUNTIME": "modal"}, clear=False)
+    def test_hydrate_spawns_once_per_container(self) -> None:
+        reset_hydrate_spawn_for_tests()
+        fn = MagicMock()
+        modal_mod = MagicMock()
+        modal_mod.Function.from_name.return_value = fn
+        with patch.dict("sys.modules", {"modal": modal_mod}):
+            self.assertTrue(spawn_hydrate_official_extensions())
+            self.assertFalse(spawn_hydrate_official_extensions())
+        modal_mod.Function.from_name.assert_called_once_with("modly-backend", "hydrate_official_extensions")
+        fn.spawn.assert_called_once()
 
 
 class CancelTests(unittest.TestCase):

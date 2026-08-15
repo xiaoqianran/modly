@@ -258,6 +258,7 @@ test('Modal CLI tokens stay in a laptop session IPC, never settings.json or Gene
   assert.match(firstRun, /Connect this session/)
   assert.equal(firstRun.includes('settings.set'), false)
   assert.match(settings, /Connect this session/)
+  assert.match(settings, /loadExtensions/)
   assert.equal(generate.includes('token-id'), false)
   assert.equal(useApi.includes('token-id'), false)
   assert.equal(useApi.includes('modal:session'), false)
@@ -352,6 +353,12 @@ test('sound JSON shapes the Windows UI actually consumes', async () => {
     catalog,
   ) as Array<{ id: string; type: string }>
   assert.deepEqual(merged.map((r) => r.id), ['smoother', 'hunyuan'])
+
+  const emptyRemote = mergeCatalogLists(
+    [{ id: 'smoother', type: 'process', builtin: true }, { id: 'hunyuan3d-mini', type: 'model', builtin: false }],
+    { extensions: [] },
+  ) as Array<{ id: string }>
+  assert.deepEqual(emptyRemote.map((r) => r.id), ['smoother', 'hunyuan3d-mini'])
 
   const runs = {
     runs: [{

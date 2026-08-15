@@ -178,10 +178,15 @@ export function manifestToExtension(parsed: CatalogManifest) {
 
 export function mergeCatalogLists(localListed: unknown, remotePayload: unknown): unknown[] {
   const local = Array.isArray(localListed) ? localListed : []
+  const remote = unwrapCatalogPayload(remotePayload).map((parsed) => manifestToExtension(parsed))
+  // Empty/failed Modal catalog must not wipe laptop model extensions — that is
+  // what makes Generate toast "Extension is unavailable" on first connect.
+  if (remote.length === 0) {
+    return local
+  }
   const builtins = local.filter((item) => {
     const row = item as { builtin?: boolean; type?: string }
     return row.builtin === true || row.type === 'process'
   })
-  const remote = unwrapCatalogPayload(remotePayload).map((parsed) => manifestToExtension(parsed))
   return [...builtins, ...remote]
 }
