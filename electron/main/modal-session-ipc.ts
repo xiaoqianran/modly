@@ -2,14 +2,15 @@
  * Laptop-only IPC for the in-memory Modal session.
  * Classified `local` — tokens never go to Modal HTTP.
  *
- * Connect looks up the workspace, then if /health is `invalid function call`
- * it deploys via uv + `python -m modal deploy` using MODAL_TOKEN_ID/SECRET.
- * No browser (`modal setup`). No `modal.cmd` (Windows spawn EINVAL).
+ * Connect prefers a pasted pair, else ~/.modal.toml from `modal token set`,
+ * else MODAL_TOKEN_ID/SECRET. Then deploys with the user's own python -m modal.
+ * This app does not install Modal. No browser. No modal.cmd.
  */
 
 import { app, ipcMain } from 'electron'
 import { tryResolveConnectCredentials, type ModalSessionConnectInput } from '../../src/shared/modalSession'
 import { ensureModalCpuAsgi } from './modal-asgi-ensure'
+import { envModalTokens, readModalTomlTokens } from './modal-toml'
 import {
   clearModalSession,
   connectModalSession,
@@ -38,6 +39,13 @@ function extraAppRoots(): string[] {
   }
 }
 
+export function resolveLaptopModalCreds(input: ModalSessionConnectInput = {}): {
+  tokenId: string
+  tokenSecret: string
+} | null {
+  return tryResolveConnectCredentials(input) ?? readModalTomlTokens() ?? envModalTokens()
+}
+
 export function setupModalSessionIpc(getBridge: () => PythonBridge | null): void {
   ipcMain.handle('modal:session:status', async () => getModalSessionPublic())
 
@@ -48,9 +56,13 @@ export function setupModalSessionIpc(getBridge: () => PythonBridge | null): void
   })
 
   ipcMain.handle('modal:session:connect', async (_event, input: ModalSessionConnectInput) => {
-    const result = await connectModalSession(input ?? {})
+    const creds = resolveLaptopModalCreds(input ?? {})
+    const result = await connectModalSession({
+      ...(input ?? {}),
+      tokenId: (input?.tokenId ?? '').trim() || creds?.tokenId,
+      tokenSecret: (input?.tokenSecret ?? '').trim() || creds?.tokenSecret,
+    })
     if (!result.ok) return result
-    const creds = tryResolveConnectCredentials(input ?? {})
     const ensure = await ensureModalCpuAsgi({
       apiUrl: result.apiUrl,
       tokenId: creds?.tokenId,

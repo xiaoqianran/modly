@@ -25,10 +25,11 @@ python -m modal deploy modal/app.py
 modal run modal/app.py::bake_official_extensions   # CPU clone + CPU HF + GPU setup.py
 ```
 
-On Windows, double-click `scripts/deploy-modal.bat` or use Connect:
-uv creates `.venv-modal`, installs the CLI extra, then
-`python.exe -m modal deploy` with the pasted pair. No `modal setup`.
-Never spawn `modal.cmd` from Electron (that was `spawn EINVAL` on Windows).
+The desktop does **not** install Modal. You install the CLI yourself
+(`uv pip install 'modal[api-proxy-support]'`) and run `modal token set` once.
+Connect reads `~/.modal.toml` and runs your `python -m modal deploy`.
+Never spawn `modal.cmd` (Windows `spawn EINVAL`). Child env sets
+`PYTHONUTF8=1` so a GBK console cannot crash on Modal's `✓`.
 There is no JS equivalent of `modal deploy` or `modal[api-proxy-support]`.
 
 Container paths in `modal/app.py` are POSIX string literals (`/root/api`).

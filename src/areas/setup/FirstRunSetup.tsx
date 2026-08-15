@@ -84,7 +84,7 @@ function ChoosePathPanel({
   }
 
   return (
-    <div className="w-96 bg-surface-300 rounded-xl p-6">
+    <div className="w-96 max-h-[min(72vh,640px)] overflow-y-auto bg-surface-300 rounded-xl p-6">
       <p className="text-sm font-medium text-zinc-100 mb-1">Choose a data folder</p>
       <p className="text-xs text-zinc-500 mb-4">
         Models can be several GB each. Choose a folder with plenty of free space.
@@ -127,7 +127,7 @@ function ChoosePathPanel({
       {remoteOpen && (
         <div className="mt-3 space-y-2">
           <p className="text-[11px] text-zinc-500">
-            Stays in this app until you quit. Paste `modal token set --token-id … --token-secret …`. Connect looks up the workspace and, if the CPU app is missing, deploys with uv + `python -m modal deploy` (no browser). Same path as `scripts\deploy-modal.bat`.
+            Install Modal yourself (`uv pip install "modal[api-proxy-support]"`), then `python -m modal token set` once. Connect reads `~/.modal.toml` and deploys with your `python -m modal`. This app does not install Modal. No browser.
           </p>
           <input
             value={tokenSetCommand}
@@ -205,10 +205,14 @@ function ChoosePathPanel({
             spellCheck={false}
             className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700/60 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
           />
-          {remoteErr && <p className="text-xs text-red-400">{remoteErr}</p>}
+          {remoteErr && (
+            <pre className="text-xs text-red-400 bg-red-950/30 border border-red-900/30 rounded-lg px-3 py-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words select-text font-mono leading-relaxed">
+              {remoteErr}
+            </pre>
+          )}
           <button
             type="button"
-            disabled={remoteBusy || (!tokenSetCommand.trim() && !tokenId.trim() && !tokenSecret.trim() && !workspaceHint.trim() && !remoteUrl.trim())}
+            disabled={remoteBusy}
             onClick={async () => {
               setRemoteBusy(true)
               setRemoteErr(null)
@@ -461,7 +465,7 @@ export default function FirstRunSetup(): JSX.Element {
       </div>
 
       {/* Content */}
-      <div className="flex flex-col flex-1 items-center justify-center">
+      <div className="flex flex-col flex-1 min-h-0 items-center overflow-y-auto py-8">
         <AppHeader />
         {renderPanel()}
       </div>

@@ -4,17 +4,17 @@ import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
 import {
   CLI_MISSING_HELP,
-  UV_MISSING_HELP,
   classifyModalAsgiResponse,
+  deployChildEnv,
   deployModalApp,
-  ensureModalCliPython,
   ensureModalCpuAsgi,
+  findExistingModalPythons,
   findModalAppPy,
-  findUvExecutable,
   isMissingCommandOutput,
   isUnusableSpawnError,
   modalDeployAttempts,
   modalVenvPython,
+  resolveModalCliPython,
   sanitizeDeployDetail,
 } from './modal-asgi-ensure.ts'
 
@@ -64,12 +64,15 @@ test('ensure deploys once when /health is invalid function call, then succeeds',
 })
 
 test('ensure fails closed when the function is missing and deploy cannot run', async () => {
-  const noTokens = await ensureModalCpuAsgi(
+  const noCli = await ensureModalCpuAsgi(
     { apiUrl: 'https://demo--modly-backend-fastapi-app.modal.run' },
-    { probe: async () => ({ kind: 'not-deployed', status: 404, detail: 'modal-http: invalid function call' }) },
+    {
+      probe: async () => ({ kind: 'not-deployed', status: 404, detail: 'modal-http: invalid function call' }),
+      deploy: async () => ({ ok: false, detail: CLI_MISSING_HELP }),
+    },
   )
-  assert.equal(noTokens.ok, false)
-  assert.match(noTokens.error ?? '', /invalid function call/)
+  assert.equal(noCli.ok, false)
+  assert.match(noCli.error ?? '', /invalid function call/)
 
   const noApp = await ensureModalCpuAsgi(
     { apiUrl: 'https://demo--modly-backend-fastapi-app.modal.run', tokenId: 'ak-EXAMPLE', tokenSecret: 'as-EXAMPLE' },
@@ -194,44 +197,23 @@ test('sync spawn EINVAL also falls through to the next python', async () => {
   assert.deepEqual(cmds, ['broken-python', 'good-python'])
 })
 
-test('ensureModalCliPython runs uv venv then uv pip when the venv is missing', async () => {
-  const files = new Set<string>(['/bin/uv'])
+test('resolveModalCliPython only uses a python that already has modal', () => {
   const python = modalVenvPython('/repo')
-  const cmds: string[][] = []
-  const spawnImpl = ((cmd: string, args: string[]) => {
-    cmds.push([cmd, ...args])
-    return fakeChild((child) => {
-      if (args[0] === 'venv') files.add(python)
-      child.emit('close', 0)
-    })
-  }) as unknown as typeof import('node:child_process').spawn
-
-  const result = await ensureModalCliPython({
-    repoRoot: '/repo',
-    spawnImpl,
-    uvHints: ['/bin/uv'],
-    existsSyncImpl: (path) => files.has(path),
-  })
-  assert.equal(result.ok, true)
-  assert.equal(result.ok && result.python, python)
-  assert.ok(cmds.some((c) => c[0] === '/bin/uv' && c[1] === 'venv'))
-  assert.ok(cmds.some((c) => c[0] === '/bin/uv' && c[1] === 'pip'))
+  const files = new Set<string>([python, join('/repo', '.venv-modal', 'Lib', 'site-packages', 'modal')])
+  const found = findExistingModalPythons('/repo', (path) => files.has(path))
+  assert.deepEqual(found, [python])
+  const missing = resolveModalCliPython({ repoRoot: '/repo', existsSyncImpl: () => false })
+  assert.equal(missing.ok, false)
+  assert.equal(missing.ok === false && missing.detail, CLI_MISSING_HELP)
+  assert.match(CLI_MISSING_HELP, /does not install Modal/)
 })
 
-test('ensureModalCliPython fails closed when uv is missing', async () => {
-  const result = await ensureModalCliPython({
-    repoRoot: '/repo',
-    uvHints: [],
-    existsSyncImpl: () => false,
-  })
-  assert.equal(result.ok, false)
-  assert.equal(result.ok === false && result.detail, UV_MISSING_HELP)
-  assert.match(CLI_MISSING_HELP, /python -m modal deploy/)
-})
-
-test('findUvExecutable prefers an explicit hint that exists', () => {
-  assert.equal(findUvExecutable(['/opt/uv'], (path) => path === '/opt/uv'), '/opt/uv')
-  assert.equal(findUvExecutable([], () => false), null)
+test('deploy child env forces UTF-8 so Windows GBK cannot print Modal checkmarks', () => {
+  const env = deployChildEnv({ MODAL_TOKEN_ID: 'ak-EXAMPLE' })
+  assert.equal(env.PYTHONUTF8, '1')
+  assert.equal(env.PYTHONIOENCODING, 'utf-8')
+  assert.equal(env.MODAL_TOKEN_ID, 'ak-EXAMPLE')
+  assert.match(sanitizeDeployDetail("'gbk' codec can't encode character '\\u2713'"), /PYTHONUTF8/)
 })
 
 test('parse_modal_token_line.py prints env assignments from the CLI line', async () => {

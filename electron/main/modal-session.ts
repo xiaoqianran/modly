@@ -102,7 +102,7 @@ export async function connectModalSession(
       })
     }
 
-    throw new Error('Paste a Modal token-id and token-secret, a workspace name, or the https://…modal.run URL')
+    throw new Error('Run `python -m modal token set` once (writes ~/.modal.toml), or paste the token pair, a workspace name, or the https://…modal.run URL')
   } catch (err) {
     const error = redactModalSecrets(err instanceof Error ? err.message : String(err))
     return { ok: false, error, ...getModalSessionPublic() }

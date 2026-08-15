@@ -1,11 +1,11 @@
 /**
  * Probe the constructed .modal.run URL and, if Modal says the function
- * does not exist, deploy modal/app.py with the session CLI tokens.
+ * does not exist, deploy modal/app.py with the user's own Modal CLI.
  *
- * Deploy is Python-only: uv creates .venv-modal, then
- * `python.exe -m modal deploy` with MODAL_TOKEN_ID / MODAL_TOKEN_SECRET.
- * There is no JS `modal deploy`. Never spawn `modal.cmd` (Windows EINVAL).
- * Never run `modal setup` / browser login — the pasted token pair is enough.
+ * This app does not install Modal. The user installs it (uv / pip) and
+ * runs `python -m modal token set` once. We read ~/.modal.toml and spawn
+ * an existing python.exe -m modal deploy. Never spawn modal.cmd (EINVAL).
+ * Force UTF-8 so Windows GBK cannot crash on Modal's ✓ character.
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -38,14 +38,9 @@ const NOT_DEPLOYED_HINT =
   'This Modal workspace has no live modly-backend CPU app (modal-http: invalid function call).'
 
 const DEPLOY_TIMEOUT_MS = 12 * 60_000
-const UV_VENV_TIMEOUT_MS = 2 * 60_000
-const UV_PIP_TIMEOUT_MS = 5 * 60_000
-
-export const UV_MISSING_HELP =
-  'uv is not installed (needed to create .venv-modal). Install https://docs.astral.sh/uv/ then Connect again, or double-click scripts\\deploy-modal.bat and paste the same token pair. No browser login — token-id + token-secret are enough.'
 
 export const CLI_MISSING_HELP =
-  'Could not run python -m modal deploy. Install uv, then Connect again so the app can create .venv-modal and install modal[api-proxy-support]. Or double-click scripts\\deploy-modal.bat and paste the same token pair (no browser).'
+  'This app does not install Modal. In a terminal: uv pip install "modal[api-proxy-support]" && python -m modal token set --token-id … --token-secret …  then Connect again so we can run python -m modal deploy. Need a python.exe that already has the modal package.'
 
 export function classifyModalAsgiResponse(status: number, body: string): AsgiProbeKind {
   const text = body || ''
@@ -100,36 +95,34 @@ export function modalVenvPython(repoRoot: string): string {
     : join(repoRoot, '.venv-modal', 'bin', 'python')
 }
 
-export function findUvExecutable(
-  hints: string[] = [],
+/** Existing pythons that already have the modal package. Never creates a venv. */
+export function findExistingModalPythons(
+  repoRoot: string,
   exists: (path: string) => boolean = existsSync,
-): string | null {
-  for (const hint of hints) {
-    if (hint && exists(hint)) return hint
-  }
-  const names = process.platform === 'win32' ? ['uv.exe', 'uv'] : ['uv']
-  const home = process.env.USERPROFILE || process.env.HOME || ''
-  const localApp = process.env.LOCALAPPDATA || ''
-  const extras = process.platform === 'win32'
-    ? [
-        join(home, '.local', 'bin'),
-        join(home, '.cargo', 'bin'),
-        localApp ? join(localApp, 'Microsoft', 'WinGet', 'Links') : '',
-        localApp ? join(localApp, 'Programs', 'uv') : '',
-      ]
-    : [join(home, '.local', 'bin'), join(home, '.cargo', 'bin')]
-  const dirs = [
-    ...(process.env.PATH || '').split(delimiter),
-    ...extras,
+  extra: string[] = [],
+): string[] {
+  const win = process.platform === 'win32'
+  const files = [
+    ...extra,
+    modalVenvPython(repoRoot),
+    join(repoRoot, '.venv', win ? join('Scripts', 'python.exe') : join('bin', 'python')),
+    process.env.VIRTUAL_ENV
+      ? join(process.env.VIRTUAL_ENV, win ? join('Scripts', 'python.exe') : join('bin', 'python'))
+      : '',
   ]
-  for (const dir of dirs) {
+  const names = win ? ['python.exe'] : ['python3', 'python']
+  for (const dir of (process.env.PATH || '').split(delimiter)) {
     if (!dir) continue
-    for (const name of names) {
-      const candidate = join(dir, name)
-      if (exists(candidate)) return candidate
-    }
+    for (const name of names) files.push(join(dir, name))
   }
-  return null
+  const found: string[] = []
+  const seen = new Set<string>()
+  for (const file of files) {
+    if (!file || seen.has(file)) continue
+    seen.add(file)
+    if (exists(file) && modalPackageInstalled(file, exists)) found.push(file)
+  }
+  return found
 }
 
 export function modalPackageInstalled(
@@ -184,6 +177,15 @@ export function isUnusableSpawnError(err: unknown): boolean {
   return /\bEINVAL\b|\bENOENT\b/.test(msg)
 }
 
+export function deployChildEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    PYTHONIOENCODING: 'utf-8',
+    PYTHONUTF8: '1',
+    ...extra,
+  }
+}
+
 export function sanitizeDeployDetail(text: string): string {
   const cleaned = redactModalSecrets(text)
     .replace(/\uFFFD+/g, ' ')
@@ -191,10 +193,13 @@ export function sanitizeDeployDetail(text: string): string {
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+  if (/codec can.t encode character|gbk. codec/i.test(text)) {
+    return 'Windows GBK cannot print Modal\'s ✓. Connect now sets PYTHONUTF8=1. Install Modal yourself, run token set once, then Connect again.'
+  }
   if (!cleaned || isMissingCommandOutput(cleaned) || /^['"]modal['"]$/.test(cleaned)) {
     return CLI_MISSING_HELP
   }
-  return cleaned.slice(-800)
+  return cleaned.slice(-1200)
 }
 
 /** Real python executables only. Never `modal.cmd` — Electron spawn EINVAL on Windows. */
@@ -233,7 +238,7 @@ export function runCaptured(
     try {
       child = spawnImpl(cmd, args, {
         cwd: opts.cwd,
-        env: opts.env ?? process.env,
+        env: opts.env ?? deployChildEnv(),
         windowsHide: true,
       })
     } catch (err) {
@@ -269,66 +274,37 @@ export function runCaptured(
   })
 }
 
-export async function ensureModalCliPython(opts: {
+export function resolveModalCliPython(opts: {
   repoRoot: string
-  spawnImpl?: typeof spawn
-  uvHints?: string[]
   existsSyncImpl?: (path: string) => boolean
-}): Promise<{ ok: true; python: string } | { ok: false; detail: string }> {
-  const exists = opts.existsSyncImpl ?? existsSync
-  const python = modalVenvPython(opts.repoRoot)
-  const needVenv = !exists(python)
-  const needPip = needVenv || !modalPackageInstalled(python, exists)
-  if (!needVenv && !needPip) return { ok: true, python }
-
-  const uv = findUvExecutable(opts.uvHints, exists)
-  if (!uv) return { ok: false, detail: UV_MISSING_HELP }
-
-  const spawnImpl = opts.spawnImpl ?? spawn
-  if (needVenv) {
-    const created = await runCaptured(spawnImpl, uv, ['venv', '.venv-modal'], {
-      cwd: opts.repoRoot,
-      timeoutMs: UV_VENV_TIMEOUT_MS,
-    })
-    if (!created.ok) return { ok: false, detail: created.detail }
-    if (!exists(python)) {
-      return { ok: false, detail: `uv venv finished but ${python} is missing.` }
-    }
-  }
-
-  if (needPip) {
-    const installed = await runCaptured(
-      spawnImpl,
-      uv,
-      ['pip', 'install', '--python', python, '-r', 'modal/requirements.txt'],
-      { cwd: opts.repoRoot, timeoutMs: UV_PIP_TIMEOUT_MS },
-    )
-    if (!installed.ok) return { ok: false, detail: installed.detail }
-  }
-
-  return { ok: true, python }
+  extraPythons?: string[]
+}): { ok: true; python: string } | { ok: false; detail: string } {
+  const found = findExistingModalPythons(
+    opts.repoRoot,
+    opts.existsSyncImpl ?? existsSync,
+    opts.extraPythons ?? [],
+  )
+  if (found[0]) return { ok: true, python: found[0] }
+  return { ok: false, detail: CLI_MISSING_HELP }
 }
 
 export async function deployModalApp(opts: {
-  tokenId: string
-  tokenSecret: string
+  tokenId?: string
+  tokenSecret?: string
   appPy: string
   pythonHints?: string[]
-  uvHints?: string[]
   spawnImpl?: typeof spawn
   existsSyncImpl?: (path: string) => boolean
 }): Promise<{ ok: boolean; detail: string }> {
   const repoRoot = dirname(dirname(opts.appPy))
   let pythons = (opts.pythonHints ?? []).filter(Boolean)
   if (pythons.length === 0) {
-    const ensured = await ensureModalCliPython({
+    const resolved = resolveModalCliPython({
       repoRoot,
-      spawnImpl: opts.spawnImpl,
-      uvHints: opts.uvHints,
       existsSyncImpl: opts.existsSyncImpl,
     })
-    if (!ensured.ok) return { ok: false, detail: ensured.detail }
-    pythons = [ensured.python]
+    if (!resolved.ok) return { ok: false, detail: resolved.detail }
+    pythons = [resolved.python]
   }
 
   const attempts = modalDeployAttempts(pythons)
@@ -342,13 +318,12 @@ export async function deployModalApp(opts: {
     return new Promise((resolve) => {
       let child: ChildProcess
       try {
+        const tokenEnv: NodeJS.ProcessEnv = {}
+        if ((opts.tokenId ?? '').trim()) tokenEnv.MODAL_TOKEN_ID = opts.tokenId!.trim()
+        if ((opts.tokenSecret ?? '').trim()) tokenEnv.MODAL_TOKEN_SECRET = opts.tokenSecret!.trim()
         child = spawnImpl(attempt.cmd, attempt.args, {
           cwd: repoRoot,
-          env: {
-            ...process.env,
-            MODAL_TOKEN_ID: opts.tokenId,
-            MODAL_TOKEN_SECRET: opts.tokenSecret,
-          },
+          env: deployChildEnv(tokenEnv),
           windowsHide: true,
         })
       } catch (err) {
@@ -403,7 +378,6 @@ export async function ensureModalCpuAsgi(opts: {
   bearerToken?: string
   extraAppRoots?: string[]
   pythonHints?: string[]
-  uvHints?: string[]
 }, deps: EnsureAsgiDeps = {}): Promise<EnsureAsgiResult> {
   const probe = deps.probe ?? probeModalAsgi
   const first = await probe(opts.apiUrl, opts.bearerToken)
@@ -420,13 +394,6 @@ export async function ensureModalCpuAsgi(opts: {
 
   const tokenId = (opts.tokenId ?? '').trim()
   const tokenSecret = (opts.tokenSecret ?? '').trim()
-  if (!tokenId || !tokenSecret) {
-    return {
-      ok: false,
-      deployed: false,
-      error: `${NOT_DEPLOYED_HINT} Paste token-id + token-secret so Connect can run python -m modal deploy (no browser).`,
-    }
-  }
 
   const appPy = (deps.findAppPy ?? (() => findModalAppPy(process.cwd(), opts.extraAppRoots)))()
   if (!appPy) {
@@ -440,7 +407,6 @@ export async function ensureModalCpuAsgi(opts: {
   const deploy = deps.deploy ?? ((args) => deployModalApp({
     ...args,
     pythonHints: opts.pythonHints,
-    uvHints: opts.uvHints,
   }))
   const deployed = await deploy({ tokenId, tokenSecret, appPy })
   if (!deployed.ok) {

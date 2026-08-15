@@ -141,7 +141,7 @@ export function ApplicationSection(): JSX.Element {
             <div className="rounded-lg border border-zinc-700/60 bg-zinc-900/40 p-3 space-y-2">
               <p className="text-xs font-medium text-zinc-300">This-session tokens</p>
               <p className="text-[11px] text-zinc-500">
-                Paste your Modal CLI pair. Connect looks up the workspace and, if needed, deploys the empty CPU shell with uv + `python -m modal deploy` (no browser — token-id + token-secret are enough). Same as `scripts\deploy-modal.bat`. Idle is 0 CPU / 0 GPU. Nothing is written to the settings folder.
+                Install Modal yourself, then `python -m modal token set` once. Connect reads `~/.modal.toml` (or a pasted pair) and runs your `python -m modal deploy`. This app does not install Modal. No browser. Idle is 0 CPU / 0 GPU. Nothing is written to the settings folder.
               </p>
               {session?.active && (
                 <p className="text-[11px] text-emerald-400/90 font-mono break-all">
@@ -213,7 +213,11 @@ export function ApplicationSection(): JSX.Element {
                 spellCheck={false}
                 className="w-full px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700/60 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
               />
-              {sessionError && <p className="text-xs text-red-400">{sessionError}</p>}
+              {sessionError && (
+                <pre className="text-xs text-red-400 bg-red-950/30 border border-red-900/30 rounded-lg px-3 py-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words select-text font-mono leading-relaxed">
+                  {sessionError}
+                </pre>
+              )}
               <div className="flex items-center gap-2">
                 <button
                   type="button"
