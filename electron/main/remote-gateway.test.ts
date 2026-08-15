@@ -24,13 +24,15 @@ function listen(server: http.Server): Promise<number> {
   })
 }
 
-test('gateway proxies health and caches workspace artifacts', async () => {
+test('gateway answers health locally and caches workspace artifacts', async () => {
+  let healthHits = 0
   const jobs: Record<string, { status: string; output_url?: string }> = {
     'job-1': { status: 'done', output_url: '/workspace/Default/out.glb' },
   }
   const upstream = http.createServer((req, res) => {
     const url = req.url ?? '/'
     if (url === '/health') {
+      healthHits += 1
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ status: 'ok' }))
       return
@@ -70,6 +72,7 @@ test('gateway proxies health and caches workspace artifacts', async () => {
     const base = `http://127.0.0.1:${gateway.port}`
     const health = await axios.get(`${base}/health`)
     assert.deepEqual(health.data, { status: 'ok' })
+    assert.equal(healthHits, 0)
 
     const future = await axios.get(`${base}/future/new-feature`)
     assert.deepEqual(future.data, { added: 'upstream' })
@@ -120,6 +123,45 @@ test('import-by-path uploads a local file to /optimize/import', async () => {
     })
     assert.equal(data.url, '/workspace/Imports/mesh.glb')
     assert.equal(uploadedName, 'mesh.glb')
+  } finally {
+    await gateway.stop()
+    await new Promise<void>((resolve) => upstream.close(() => resolve()))
+  }
+})
+
+test('gateway coalesces catalog GETs and does not wake Modal for health', async () => {
+  let catalogHits = 0
+  const upstream = http.createServer((req, res) => {
+    if (req.url === '/extensions/catalog') {
+      catalogHits += 1
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify([{ id: 'hunyuan' }]))
+      return
+    }
+    res.writeHead(404)
+    res.end()
+  })
+  const upstreamPort = await listen(upstream)
+  const workspaceDir = mkdtempSync(join(tmpdir(), 'modly-cache-'))
+  const { startRemoteGateway } = await loadGateway()
+  const gateway = await startRemoteGateway({
+    host: '127.0.0.1',
+    port: 0,
+    upstreamUrl: `http://127.0.0.1:${upstreamPort}`,
+    workspaceDir,
+  })
+  try {
+    const base = `http://127.0.0.1:${gateway.port}`
+    const [a, b] = await Promise.all([
+      axios.get(`${base}/extensions/catalog`),
+      axios.get(`${base}/extensions/catalog`),
+    ])
+    assert.deepEqual(a.data, [{ id: 'hunyuan' }])
+    assert.deepEqual(b.data, [{ id: 'hunyuan' }])
+    assert.equal(catalogHits, 1)
+    const c = await axios.get(`${base}/extensions/catalog`)
+    assert.deepEqual(c.data, [{ id: 'hunyuan' }])
+    assert.equal(catalogHits, 1)
   } finally {
     await gateway.stop()
     await new Promise<void>((resolve) => upstream.close(() => resolve()))

@@ -14,7 +14,7 @@ import { Buffer } from 'node:buffer'
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, basename } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { classifyGatewayRequest, isLocalFsPath, queryParam, workspaceRelFromOutputUrl } from './remote-gateway-logic'
+import { classifyGatewayRequest, isLocalFsPath, isMutatingMethod, pathOnly, queryParam, ShortGetCache, LOCAL_HEALTH_BODY, workspaceRelFromOutputUrl } from './remote-gateway-logic'
 
 export interface RemoteGatewayOptions {
   host: string
@@ -42,9 +42,11 @@ const WORKSPACE_MEDIA: Record<string, string> = {
 
 export async function startRemoteGateway(opts: RemoteGatewayOptions): Promise<StartedGateway> {
   const upstream = new URL(opts.upstreamUrl.includes('://') ? opts.upstreamUrl : `https://${opts.upstreamUrl}`)
+  const getCache = new ShortGetCache()
+  const inflight = new Map<string, Promise<{ statusCode: number; headers: http.IncomingHttpHeaders; body: Buffer }>>()
 
   const server = http.createServer((req, res) => {
-    void handleRequest(req, res, { ...opts, upstream }).catch((err) => {
+    void handleRequest(req, res, { ...opts, upstream, getCache, inflight }).catch((err) => {
       if (!res.headersSent) {
         res.writeHead(502, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ detail: String(err) }))
@@ -73,11 +75,25 @@ export async function startRemoteGateway(opts: RemoteGatewayOptions): Promise<St
 async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  opts: RemoteGatewayOptions & { upstream: URL },
+  opts: RemoteGatewayOptions & {
+    upstream: URL
+    getCache: ShortGetCache
+    inflight: Map<string, Promise<{ statusCode: number; headers: http.IncomingHttpHeaders; body: Buffer }>>
+  },
 ): Promise<void> {
   const url = req.url ?? '/'
   const action = classifyGatewayRequest(req.method ?? 'GET', url)
 
+  if (isMutatingMethod(req.method ?? 'GET')) {
+    opts.getCache.invalidate()
+  }
+
+  if (action.type === 'local-health') {
+    const body = JSON.stringify(LOCAL_HEALTH_BODY)
+    res.writeHead(200, { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)) })
+    res.end(body)
+    return
+  }
   if (action.type === 'import-by-path') {
     await handleImportByPath(req, res, opts)
     return
@@ -102,8 +118,56 @@ async function handleRequest(
     await proxyAndPrefetch(req, res, opts)
     return
   }
+  if (action.type === 'cache-get') {
+    await handleCacheGet(req, res, opts)
+    return
+  }
 
   await pipeProxy(req, res, opts)
+}
+
+async function handleCacheGet(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: RemoteGatewayOptions & {
+    upstream: URL
+    getCache: ShortGetCache
+    inflight: Map<string, Promise<{ statusCode: number; headers: http.IncomingHttpHeaders; body: Buffer }>>
+  },
+): Promise<void> {
+  const path = pathOnly(req.url ?? '/')
+  const cached = opts.getCache.get(path)
+  if (cached) {
+    res.writeHead(cached.statusCode, {
+      'content-type': cached.contentType,
+      'content-length': String(cached.body.length),
+    })
+    res.end(cached.body)
+    return
+  }
+
+  let pending = opts.inflight.get(path)
+  if (!pending) {
+    pending = requestUpstream(opts, {
+      method: 'GET',
+      path: req.url ?? '/',
+      headers: forwardedHeaders(req, opts),
+    }).finally(() => {
+      opts.inflight.delete(path)
+    })
+    opts.inflight.set(path, pending)
+  }
+  const upstreamRes = await pending
+  const contentType = String(upstreamRes.headers['content-type'] ?? 'application/json')
+  if (upstreamRes.statusCode >= 200 && upstreamRes.statusCode < 300) {
+    opts.getCache.set(path, {
+      statusCode: upstreamRes.statusCode,
+      contentType,
+      body: upstreamRes.body,
+    })
+  }
+  res.writeHead(upstreamRes.statusCode, copyResponseHeaders(upstreamRes.headers))
+  res.end(upstreamRes.body)
 }
 
 async function handleImportByPath(
