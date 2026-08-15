@@ -2,8 +2,13 @@
 
 > 配套 ADR：[`arch/decisions/MODAL-REMOTE-BACKEND.md`](../arch/decisions/MODAL-REMOTE-BACKEND.md)
 >
-> 本页是落地手册。结论先说：**你画的拓扑是对的；“改 4 块就够”不够。**
-> CodeGraph 全库索引（173 files / 2,305 nodes / 5,672 edges）之后，真正要动的是 **8 个耦合面**。
+> **上游更新能不能几乎不用改？能，前提是走 overlay，而不是改 Generate / `useApi` / Models 页。**
+>
+> 前端永远以为后端是 `http://127.0.0.1:8765`。Remote 时 Electron 在这个端口起一个网关，转发到 Modal。
+> 上游新加的 HTTP 路由、新 UI、新轮询，合并进来就会自动打到云端。
+> 只有“扫本机磁盘 / 传本机绝对路径”这类新 IPC，才需要在 `ipc-handlers.ts` 加一行 shim。
+>
+> 你画的拓扑是对的；“改 4 块就够”不够。CodeGraph 全库索引（173 files / 2,305 nodes / 5,672 edges）之后，真正要动的是 **8 个耦合面**，但它们被收进 overlay，而不是散落到 React。
 
 ---
 
@@ -178,29 +183,28 @@ modal deploy modal/app.py
 验收：浏览器打开 `https://<workspace>--modly-backend-fastapi-app.modal.run/health` 返回 `{"status":"ok"}`。
 这一阶段 **不改前端**，证明 Image + Volume 挂载能起来。
 
-### Phase 1 — Remote 模式开关（最小前端改动）
+### Phase 1 — Overlay（已落地，前端几乎不改）
 
-改这些文件：
+原则：**不要改 `appStore.initApp` / `useApi` / Generate 页。** 让它们继续打 `127.0.0.1:8765`。
 
-1. `electron/main/settings-store.ts`  
-   增加 `backendMode: 'local' | 'remote'`、`remoteApiUrl`、`remoteApiToken`。
-2. `electron/main/python-bridge.ts` + `ipc-handlers.ts`  
-   抽出 `getApiBaseUrl()`。所有 `API_BASE_URL` / `PYTHON_API_URL` 走它。
-3. `src/shared/stores/appStore.ts`  
-   `initApp`：remote 则 `GET /health`，成功后 `apiUrl = remoteApiUrl`，**不**调用 `python.start()`。
-4. `src/App.tsx` + `FirstRunSetup.tsx`  
-   remote 跳过本地 Python 安装；只要求填 Modal URL（+ token）。
-5. `src/areas/settings/components/ApplicationSection.tsx`  
-   增加 Backend：Local GPU / Modal Remote，以及 URL 输入框。
+已落地：
 
-验收：选 Remote、填 URL，主界面能进来，Generate 页能打到 Modal `/health`。这时还没有模型，生成会失败，这是预期。
+1. `electron/main/remote-backend.ts` — `MODLY_REMOTE_API_URL` 或 settings 打开 remote。
+2. `electron/main/remote-gateway.ts` — 本机 8765 反代到 Modal；拦截 `import-by-path`、把 `/workspace` GLB 缓存到本机，好让 process 节点继续吃本地路径。
+3. `electron/main/python-bridge.ts` — remote 时起网关，不启 uvicorn。`start()` 签名不变。
+4. `ipc-handlers.ts` — 只 shim 扫磁盘的 IPC：`setup:check`、`model:isDownloaded` / `listDownloaded` / `delete`、`extensions:list`。
+5. 加法 FastAPI：`GET /extensions/catalog`、`POST /optimize/import`、`POST /model/delete/{id}`。
+6. 设置里的 Backend 开关 + 首次启动的 “Use Modal” 入口。
+
+验收：设好 Modal URL 后重启，主界面能进来，`GET http://127.0.0.1:8765/health` 实际打到 Modal。这时还没有预装模型，生成会失败，这是预期。
+
+上游以后加 `POST /something-new`：网关默认 `proxy`，**不用改代码**。
 
 ### Phase 2 — 官方模型预装 + 目录 API
 
 - 写一个 Modal `setup_official_extensions`：clone 官方 Hunyuan / TRELLIS repo 到 extensions Volume，在 GPU 容器里跑它们的 `setup.py`。
-- FastAPI 增加 `GET /extensions/catalog`，把 `generator_registry` 的 manifest 列表原样返回。
-- `extensionsStore.loadExtensions`：remote 时走 catalog，不再 `window.electron.extensions.list()`。
-- `ModelsPage`：`isDownloaded` 改 `GET /model/all`；Download 按钮的 SSE 打 remote `/model/hf-download`。
+- FastAPI 增加 `GET /extensions/catalog`（已有）。把官方 Hunyuan / TRELLIS 预装进 Volume 后，现有 `extensions:list` shim 会自动列出它们。
+- **不要改** `extensionsStore` / `ModelsPage`。`isDownloaded` 已经走 `GET /model/all`；Download 的 SSE 已经打 `127.0.0.1:8765`，网关会转到 Modal。
 
 验收：Models 页能看到云端的 Hunyuan / TRELLIS，点下载进度能走完，Volume 里出现权重。
 
@@ -231,24 +235,20 @@ modal deploy modal/app.py
 
 ## 5. 每个阶段改哪些文件（给下一步直接开干）
 
-### Phase 1 文件清单
+### Overlay 文件清单（刻意不碰渲染层核心）
 
-| 文件 | 改什么 |
-|------|--------|
-| `electron/main/settings-store.ts` | 三个新字段 |
-| `electron/main/python-bridge.ts` | 导出 `getApiBaseUrl()`；local 仍起 uvicorn |
-| `electron/main/model-downloader.ts` | `PYTHON_API_URL` ← `getApiBaseUrl()` |
-| `electron/main/ipc-handlers.ts` | `app:info` / model:* / extensions:reload / settings 全部用它 |
-| `src/shared/stores/appStore.ts` | `backendMode`、`initApp` 分支 |
-| `src/shared/types/electron.d.ts` | settings 类型 |
-| `src/App.tsx` | remote 不走 Python setup |
-| `src/areas/setup/FirstRunSetup.tsx` | remote 欢迎页 |
-| `src/areas/settings/components/ApplicationSection.tsx` | 开关 UI |
-| `src/shared/hooks/useApi.ts` | 可选：axios interceptor 加 Bearer |
+| 文件 | 角色 |
+|------|------|
+| `electron/main/remote-backend.ts` | 解析 env / settings |
+| `electron/main/remote-gateway.ts` | 8765 → Modal 反代 + 路径翻译 |
+| `electron/main/python-bridge.ts` | remote 起网关，签名不变 |
+| `electron/main/ipc-handlers.ts` | 只 shim 扫磁盘的 IPC |
+| `api/services/extension_catalog.py` | 加法 catalog |
+| `api/routers/optimize.py` | 加法 `POST /optimize/import` |
+| `src/areas/settings/components/ApplicationSection.tsx` | 开关（可在上游冲突时重放） |
+| `src/areas/setup/FirstRunSetup.tsx` | 首次启动的 Modal 入口 |
 
-### 明确不要改（直到 Phase 3/4）
-
-`GeneratePage.tsx`、`Viewer3D.tsx`、`GenerationOptions.tsx`、`WorkflowsPage.tsx`、节点组件、`useGeneration.ts` 的轮询逻辑。
+**不要改：** `appStore.ts`、`useApi.ts`、`GeneratePage.tsx`、`Viewer3D.tsx`、`ModelsPage.tsx`、`extensionsStore.ts`、`useGeneration.ts`、Workflow 画布。这是“上游更新几乎不用改”的前提。
 
 ---
 
@@ -256,7 +256,7 @@ modal deploy modal/app.py
 
 - [ ] `modal serve modal/app.py` 的 `/health` 为 200
 - [ ] Remote 模式启动 **零** 本地 `uvicorn` 进程
-- [ ] `appStore.apiUrl` 与主进程 `getApiBaseUrl()` 是同一个 Modal URL
+- [ ] `appStore.apiUrl` 仍是 `http://127.0.0.1:8765`，网关把请求转到 Modal
 - [ ] Models 页的“已下载”来自 `GET /model/all`，不是本机文件夹
 - [ ] 生成一张图，Viewer 能加载 `https://…/workspace/…glb`
 - [ ] 本机 workflow 的 Smooth / Optimize 仍可用（先下载 GLB）

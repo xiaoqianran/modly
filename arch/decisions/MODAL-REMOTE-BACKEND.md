@@ -7,12 +7,29 @@
 
 Keep the Modly Electron / React desktop app on the user's machine, and move
 the FastAPI + model-extension runtime to Modal. Local mode stays the default.
-Remote mode is an explicit backend switch: no local Python process, no local
-model weights, no local extension venvs.
 
-This is **not** "change `apiUrl` and ship". CodeGraph (173 files, 2,305 nodes,
-5,672 edges) plus a source pass show eight coupling surfaces. The four blocks
-in the original sketch are necessary but not sufficient.
+**Upstream compatibility is a hard requirement.** Remote mode is an overlay,
+not a fork of the renderer:
+
+- `appStore.initApp()` still calls `window.electron.python.start()`.
+- `useApi()` still uses `apiUrl` from `app.info()`, which stays
+  `http://127.0.0.1:8765`.
+- Generate / Workflow / Viewer / Models pages are not rewritten.
+- `python-bridge.start()` either launches local uvicorn **or** a local
+  gateway that proxies 8765 → Modal.
+- New FastAPI routes added by upstream are forwarded automatically.
+- Only local-path assumptions (`import-by-path`, workspace cache,
+  disk-scanning IPC) are translated in the overlay.
+
+When lightningpixel/modly adds a feature that talks HTTP through `apiUrl`
+or `API_BASE_URL`, a merge should pick it up with no Modal-specific edit.
+Features that invent a new “scan the local models folder” IPC still need a
+one-line shim in `ipc-handlers.ts`.
+
+This is **not** "change `apiUrl` in the renderer and ship". CodeGraph
+(173 files, 2,305 nodes, 5,672 edges) plus a source pass show eight
+coupling surfaces. The overlay concentrates those surfaces in Electron
+main + additive FastAPI routes.
 
 ## Context
 
@@ -75,37 +92,38 @@ matches this codebase's job loop.
 
 ## Eight change surfaces
 
-### 1. Backend mode (`appStore` + `App.tsx` + first-run)
+### 1. Backend mode (settings + first-run, **not** `appStore.apiUrl`)
 
-`initApp` always calls `window.electron.python.start()`. `App.tsx` then
-blocks the whole UI on `setupStatus === 'done'` (local Python venv) and
-`backendStatus === 'ready'`.
-
-Remote mode must:
+`initApp` always calls `window.electron.python.start()`. That call stays.
+`app:info` still returns `http://127.0.0.1:8765`. Remote mode only changes
+what listens on that port:
 
 - persist `backendMode: 'local' | 'remote'` and `remoteApiUrl`
-- skip `python.start()`, skip first-run Python install
-- `GET {remoteApiUrl}/health` and set `apiUrl`
-- still allow local file pickers (images / meshes stay on disk until upload)
+- `setup:check` reports `needed: false` so first-run Python install is skipped
+- `python-bridge.start()` launches the localhost gateway instead of uvicorn
+- file pickers stay local; bytes are uploaded when a host path would otherwise
+  be sent to Modal
 
-### 2. Electron main still hardcodes `127.0.0.1:8765`
+Do **not** point the renderer at the Modal URL. That would fork every future
+upstream UI change.
 
-Changing `appStore.apiUrl` is not enough. These main-process calls never
-read the renderer store:
+### 2. Electron main still hardcodes `127.0.0.1:8765` — keep it
 
-| Call site | Why it breaks in remote mode |
-|-----------|------------------------------|
-| `app:info` / `python:status` | always return `API_BASE_URL` |
-| `model-downloader.ts` | `PYTHON_API_URL` default `http://127.0.0.1:8765` |
-| `model:isDownloaded` / `listDownloaded` / `delete` | scan **local** `modelsDir` |
-| `model:pauseDownload` / `cancelDownload` / `unloadAll` | axios to local FastAPI |
-| `model:export` | axios to local `/export` |
-| `extensions:install` / `reload` / `repair` | write local folders, then POST local `/extensions/reload` |
-| `settings:set` HF token | POST local `/settings/hf-token` |
-| `api:updatePaths` | POST local `/settings/paths` |
+Those call sites are a feature of the overlay, not a bug. HTTP through
+`API_BASE_URL` / `PYTHON_API_URL` hits the gateway and is forwarded.
 
-Remote mode needs a single `getApiBaseUrl()` in main (from `settings.json`)
-and every `API_BASE_URL` / `PYTHON_API_URL` use must go through it.
+Only **disk-scan** IPC needs a shim (already in `ipc-handlers.ts`):
+
+| Call site | Overlay action |
+|-----------|----------------|
+| `model:isDownloaded` / `listDownloaded` / `delete` | `GET /model/all` / `POST /model/delete` |
+| `extensions:list` | builtins + `GET /extensions/catalog` |
+| `extensions:installFromGitHub` | `POST /extensions/install-from-github` |
+| `setup:check` | skip local venv when remote |
+| `model:cancelDownload` | do not `rm` the laptop models dir |
+
+`model:download`, export, HF token, and `/extensions/reload` keep using
+`127.0.0.1:8765` and therefore Modal, with no extra URL plumbing.
 
 ### 3. Extension install is Electron-owned, not FastAPI-owned
 
@@ -233,18 +251,16 @@ torch into the ASGI image.
 
 1. **Modal skeleton** — wrap `api/main.py` with `@modal.asgi_app`, Volumes,
    health check. No frontend change.
-2. **Remote mode plumbing** — `backendMode` + `remoteApiUrl` in settings
-   and `appStore`; skip local Python; health-check the Modal URL.
-3. **Point Electron IPC at the same URL** — `getApiBaseUrl()`; remote
-   download / status / unload / export.
-4. **Catalog + prebaked official extensions** — `GET /extensions/catalog`;
-   Models page uses it in remote mode.
-5. **Upload import + workspace cache** — so Generate import and workflow
-   process nodes keep working.
-6. **Job Dict + GPU worker split + bearer auth**.
+2. **Overlay** — settings + localhost 8765 gateway + disk-scan IPC shims.
+   Renderer / `useApi` / Generate stay untouched.
+3. **Catalog + prebaked official extensions** — Volume bake; catalog is
+   already consumed by the `extensions:list` shim.
+4. **Upload import + workspace cache** — already in the gateway
+   (`import-by-path` → multipart, `/workspace` prefetch).
+5. **Job Dict + GPU worker split + bearer auth**.
 
-Do not start at (6). A CPU-only Modal deploy that returns `/health` is the
-first proof the Electron app can run without `python.start()`.
+Do not start at (5). A CPU-only Modal deploy that returns `/health` through
+`http://127.0.0.1:8765` is the first proof the overlay works.
 
 ## Risks
 

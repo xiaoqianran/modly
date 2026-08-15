@@ -9,6 +9,7 @@ import * as tar from 'tar'
 import * as os from 'os'
 import { promisify } from 'util'
 import { PythonBridge, API_BASE_URL } from './python-bridge'
+import { resolveRemoteBackend } from './remote-backend'
 import {
   isModelDownloaded,
   listDownloadedModels,
@@ -275,6 +276,11 @@ const renameWithRetry = (from: string, to: string, label: string): Promise<FsRet
 // corrupted while the install is legitimately running.
 const activeExtensionInstalls = new Set<string>()
 
+/** True when the 8765 listener is the Modal gateway, not local uvicorn. */
+function isRemoteBackend(): boolean {
+  return resolveRemoteBackend(getSettings(app.getPath('userData'))).enabled
+}
+
 export function setupIpcHandlers(pythonBridge: PythonBridge, getWindow: WindowGetter): void {
   // Reconcile leftovers of interrupted installs. No install can be in flight
   // this early in the app's life, so anything matching is stale:
@@ -366,7 +372,7 @@ export function setupIpcHandlers(pythonBridge: PythonBridge, getWindow: WindowGe
     const userData = app.getPath('userData')
     const defaultDataDir = join(app.getPath('documents'), 'Modly')
     return {
-      needed: checkSetupNeeded(userData),
+      needed: isRemoteBackend() ? false : checkSetupNeeded(userData),
       defaultDataDir,
       platform: process.platform,
       arch: process.arch,
@@ -477,6 +483,14 @@ export function setupIpcHandlers(pythonBridge: PythonBridge, getWindow: WindowGe
   })
 
   ipcMain.handle('model:delete', async (_, modelId: string): Promise<{ success: boolean; error?: string }> => {
+    if (isRemoteBackend()) {
+      try {
+        await axios.post(`${API_BASE_URL}/model/delete/${encodeURIComponent(modelId)}`, {}, { timeout: 30_000 })
+        return { success: true }
+      } catch (err) {
+        return { success: false, error: String(err) }
+      }
+    }
     const modelDir = join(getSettings(app.getPath('userData')).modelsDir, modelId)
 
     // Unload the model and wait for confirmation so file handles are released
@@ -524,12 +538,36 @@ export function setupIpcHandlers(pythonBridge: PythonBridge, getWindow: WindowGe
   })
 
   // Model management
-  ipcMain.handle('model:listDownloaded', () => {
+  ipcMain.handle('model:listDownloaded', async () => {
+    if (isRemoteBackend()) {
+      try {
+        const { data } = await axios.get(`${API_BASE_URL}/model/all`, { timeout: 15_000 })
+        const rows = Array.isArray(data) ? data : []
+        return rows
+          .filter((m: { downloaded?: boolean }) => m.downloaded)
+          .map((m: { id: string; name?: string; size_gb?: number }) => ({
+            id: m.id,
+            name: m.name ?? m.id,
+            size_gb: m.size_gb ?? 0,
+          }))
+      } catch {
+        return []
+      }
+    }
     const modelsDir = getSettings(app.getPath('userData')).modelsDir
     return listDownloadedModels(modelsDir)
   })
 
-  ipcMain.handle('model:isDownloaded', (_, modelId: string, downloadCheck?: string): boolean => {
+  ipcMain.handle('model:isDownloaded', async (_, modelId: string, downloadCheck?: string): Promise<boolean> => {
+    if (isRemoteBackend()) {
+      try {
+        const { data } = await axios.get(`${API_BASE_URL}/model/all`, { timeout: 15_000 })
+        const rows = Array.isArray(data) ? data : []
+        return rows.some((m: { id: string; downloaded?: boolean }) => m.id === modelId && m.downloaded)
+      } catch {
+        return false
+      }
+    }
     const modelsDir = getSettings(app.getPath('userData')).modelsDir
     return isModelDownloaded(modelsDir, modelId, downloadCheck)
   })
@@ -586,8 +624,10 @@ export function setupIpcHandlers(pythonBridge: PythonBridge, getWindow: WindowGe
         params: { model_id: modelId },
         timeout: 5000,
       })
-      const modelDir = join(getSettings(app.getPath('userData')).modelsDir, modelId)
-      await rmAsync(modelDir, { recursive: true, force: true })
+      if (!isRemoteBackend()) {
+        const modelDir = join(getSettings(app.getPath('userData')).modelsDir, modelId)
+        await rmAsync(modelDir, { recursive: true, force: true })
+      }
       return { success: true }
     } catch (err) {
       return { success: false, error: String(err) }
@@ -682,7 +722,15 @@ export function setupIpcHandlers(pythonBridge: PythonBridge, getWindow: WindowGe
     return getSettings(app.getPath('userData'))
   })
 
-  ipcMain.handle('settings:set', async (_event, patch: { modelsDir?: string; workspaceDir?: string; extensionsDir?: string; hfToken?: string }) => {
+  ipcMain.handle('settings:set', async (_event, patch: {
+    modelsDir?: string
+    workspaceDir?: string
+    extensionsDir?: string
+    hfToken?: string
+    backendMode?: 'local' | 'remote'
+    remoteApiUrl?: string
+    remoteApiToken?: string
+  }) => {
     const updated = setSettings(app.getPath('userData'), patch)
     // Keep main-process env in sync so child processes spawned after token change inherit it
     if (patch.hfToken !== undefined) {
@@ -945,7 +993,8 @@ export function setupIpcHandlers(pythonBridge: PythonBridge, getWindow: WindowGe
   // Extensions — reads user extensions directory + built-in extensions directory
   ipcMain.handle('extensions:list', async () => {
     const userData      = app.getPath('userData')
-    const extensionsDir = getSettings(userData).extensionsDir
+    const settings      = getSettings(userData)
+    const extensionsDir = settings.extensionsDir
     const builtinDir    = getBuiltinExtensionsDir()
 
     const trustedRepos = await fetchTrustedRepos()
@@ -1015,12 +1064,40 @@ export function setupIpcHandlers(pythonBridge: PythonBridge, getWindow: WindowGe
       readExtensionsFromDir(builtinDir,    true),
     ])
 
+    if (isRemoteBackend()) {
+      try {
+        const { data } = await axios.get(`${API_BASE_URL}/extensions/catalog`, { timeout: 15_000 })
+        const raws = Array.isArray(data) ? data : (data?.extensions ?? [])
+        const remoteExts = raws.map((parsed: ParsedManifest) =>
+          parseExtensionManifest(parsed, parsed.id ?? 'unknown', trustedRepos, false),
+        )
+        return [...builtinExts, ...remoteExts]
+      } catch (err) {
+        console.error('[extensions:list] remote catalog failed', err)
+        return builtinExts
+      }
+    }
+
     // Built-ins come first, then user extensions
     return [...builtinExts, ...userExts]
   })
 
   // Install an extension from a GitHub repo URL
   ipcMain.handle('extensions:installFromGitHub', async (event, githubUrl: string) => {
+    if (isRemoteBackend()) {
+      try {
+        const { data } = await axios.post(
+          `${API_BASE_URL}/extensions/install-from-github`,
+          { url: githubUrl },
+          { timeout: 15_000 },
+        )
+        return data
+      } catch (err: unknown) {
+        const axiosErr = err as { response?: { data?: { detail?: string } } }
+        const detail = axiosErr.response?.data?.detail
+        return { success: false, error: typeof detail === 'string' ? detail : String(err) }
+      }
+    }
     const win    = getWindow()
     const emit   = (data: object) => win?.webContents.send('extensions:installProgress', data)
     const tmpDir = app.getPath('temp')

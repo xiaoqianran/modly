@@ -8,6 +8,9 @@ export interface AppSettings {
   extensionsDir:    string
   dependenciesDir:  string
   hfToken?:         string
+  backendMode?:     'local' | 'remote'
+  remoteApiUrl?:    string
+  remoteApiToken?:  string
 }
 
 function settingsPath(userData: string): string {

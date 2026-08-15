@@ -3,6 +3,10 @@
 Phase 0 wrapper around the existing FastAPI app. Full plan:
 [`docs/modal-remote-backend.md`](../docs/modal-remote-backend.md).
 
+The Electron app never points the renderer at this URL directly. It keeps
+`http://127.0.0.1:8765` and runs a local gateway (`electron/main/remote-gateway.ts`)
+so upstream UI/API additions stay compatible.
+
 ## Deploy (on your machine only)
 
 ```bash

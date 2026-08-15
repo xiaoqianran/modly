@@ -2,8 +2,30 @@ import asyncio
 import subprocess
 import sys
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from services.extension_catalog import list_model_extension_manifests
 
 router = APIRouter(tags=["extensions"])
+
+
+class GithubInstallRequest(BaseModel):
+    url: str
+
+
+@router.get("/catalog")
+async def extension_catalog():
+    """Raw model-extension manifests on this backend (Modal Volume or local dir)."""
+    from services.generator_registry import EXTENSIONS_DIR
+    return {"extensions": list_model_extension_manifests(EXTENSIONS_DIR)}
+
+
+@router.post("/install-from-github")
+async def install_from_github(_body: GithubInstallRequest):
+    raise HTTPException(
+        501,
+        "Remote GitHub installs are not enabled. Bake official model extensions into the Modal Volume.",
+    )
 
 
 @router.post("/reload")
