@@ -5,6 +5,7 @@ import { join } from 'path'
 import { rm as rmAsync, readFile, writeFile, mkdir, readdir, rename, cp, symlink, lstat } from 'fs/promises'
 import { existsSync, mkdirSync, readdirSync, statSync } from 'fs'
 import axios from 'axios'
+import { httpErrorMessage } from '../../src/shared/httpError'
 import * as tar from 'tar'
 import * as os from 'os'
 import { promisify } from 'util'
@@ -403,7 +404,7 @@ export function setupIpcHandlers(pythonBridge: PythonBridge, getWindow: WindowGe
       await pythonBridge.start()
       return { success: true, port: pythonBridge.getPort() }
     } catch (err) {
-      return { success: false, error: String(err) }
+      return { success: false, error: httpErrorMessage(err) }
     }
   })
 

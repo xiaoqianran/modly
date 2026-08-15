@@ -6,6 +6,7 @@
  */
 
 import axios from 'axios'
+import { httpErrorMessage } from '../../src/shared/httpError'
 import { modalPrefsBody } from '../../src/shared/modalPrefs'
 import { API_BASE_URL } from './python-bridge'
 import { DESKTOP_IPC_FALLBACK } from './ipc-dispatch'
@@ -92,7 +93,5 @@ function interpretReplaceResponse(channel: string, args: unknown[], data: unknow
 function interpretReplaceError(channel: string, err: unknown): unknown {
   if (channel === 'model:isDownloaded') return false
   if (channel === 'model:listDownloaded') return []
-  const axiosErr = err as { response?: { data?: { detail?: string } } }
-  const detail = axiosErr.response?.data?.detail
-  return { success: false, error: typeof detail === 'string' ? detail : String(err) }
+  return { success: false, error: httpErrorMessage(err) }
 }
