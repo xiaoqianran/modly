@@ -24,8 +24,22 @@ Modly is a desktop application for Windows, Linux, and Apple Silicon macOS.
 
 ### 1. 本机要有的
 
-- [Node.js LTS](https://nodejs.org)（安装时勾选 npm / PATH）
+- [Node.js](https://nodejs.org)：推荐 **22 LTS**。Node 24 也可以（`mesh-optimizer` 已改走 npm 上的 sharp 预编译包，不再从 GitHub 下 libvips）。
 - Git
+
+如果 `npm run dev` 在 `mesh-optimizer` / `sharp` 处失败（`Installation error: aborted` 或 `EPERM`），先清掉半成品再开一次：
+
+```powershell
+Remove-Item -Recurse -Force .\out\builtin-extensions -ErrorAction SilentlyContinue
+npm run dev
+```
+
+国内若 npm 也拉不下 GitHub，可先设镜像再装（不必退回 Node 22）：
+
+```powershell
+$env:SHARP_DIST_BASE_URL="https://npmmirror.com/mirrors/sharp-libvips"
+npm run dev
+```
 
 ### 2. 拉代码并启动
 

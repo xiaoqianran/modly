@@ -7,5 +7,9 @@
     "@gltf-transform/extensions": "^3.9.0",
     "@gltf-transform/functions": "^3.9.0",
     "meshoptimizer": "^0.22.0"
+  },
+  "overrides": {
+    "sharp": "0.33.5"
   }
 }
+
