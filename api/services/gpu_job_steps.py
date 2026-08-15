@@ -10,6 +10,7 @@ from typing import Any
 
 STEP_STARTING_GPU = "Starting GPU worker…"
 STEP_DOWNLOADING = "Downloading model weights"
+STEP_STAGING = "Preparing extension runtime…"
 STEP_LOADING = "Loading model"
 STEP_GENERATING = "Generating 3D mesh…"
 STEP_COMMITTING = "Saving output"

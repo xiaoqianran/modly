@@ -39,6 +39,7 @@ class WeightsReadyTests(unittest.TestCase):
         src = MODAL_APP.read_text(encoding="utf-8")
         self.assertIn("prepare_and_spawn_gpu", src)
         self.assertIn("Download runs on CPU only", src)
+        self.assertIn("stage_generator_venv", src)
         self.assertIn("STEP_GENERATING", src)
         self.assertIn("model_weights_ready", src)
         self.assertNotIn("STEP_DOWNLOADING", src)
