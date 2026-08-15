@@ -1,20 +1,23 @@
 /**
  * Laptop-only IPC for the in-memory Modal session.
  * Classified `local` — tokens never go to Modal HTTP.
+ *
+ * Connect does not spawn a local `modal` CLI (Windows EINVAL / no PATH).
+ * First-time register is scripts/deploy-modal.bat.
  */
 
-import { existsSync } from 'node:fs'
-import { app, ipcMain } from 'electron'
+import { ipcMain } from 'electron'
 import type { ModalSessionConnectInput } from '../../src/shared/modalSession'
-import { tryResolveConnectCredentials } from '../../src/shared/modalSession'
-import { ensureModalCpuAsgi } from './modal-asgi-ensure'
-import { getVenvPythonExe } from './python-setup'
+import { probeModalAsgi } from './modal-asgi-ensure'
 import {
   clearModalSession,
   connectModalSession,
   getModalSessionPublic,
 } from './modal-session'
 import type { PythonBridge } from './python-bridge'
+
+const NOT_DEPLOYED =
+  'This Modal workspace has no live modly-backend CPU app. Double-click scripts\\deploy-modal.bat (needs uv), log in, then Connect again. Deploy registers the empty shell; it does not keep GPU/CPU running.'
 
 async function applyBridge(pythonBridge: PythonBridge | null): Promise<void> {
   if (!pythonBridge) return
@@ -41,21 +44,17 @@ export function setupModalSessionIpc(getBridge: () => PythonBridge | null): void
   ipcMain.handle('modal:session:connect', async (_event, input: ModalSessionConnectInput) => {
     const result = await connectModalSession(input ?? {})
     if (!result.ok) return result
-    const creds = tryResolveConnectCredentials(input ?? {})
-    const venvPython = getVenvPythonExe(app.getPath('userData'))
-    const ensured = await ensureModalCpuAsgi({
-      apiUrl: result.apiUrl,
-      tokenId: creds?.tokenId,
-      tokenSecret: creds?.tokenSecret,
-      bearerToken: (input?.bearerToken ?? '').trim(),
-      extraAppRoots: [app.getAppPath(), process.cwd()],
-      pythonHints: existsSync(venvPython) ? [venvPython] : [],
-    })
-    if (!ensured.ok) {
+    const probe = await probeModalAsgi(result.apiUrl, (input?.bearerToken ?? '').trim())
+    if (probe.kind === 'not-deployed') {
       clearModalSession()
-      return { ok: false, error: ensured.error, ...getModalSessionPublic() }
+      return { ok: false, error: NOT_DEPLOYED, ...getModalSessionPublic() }
     }
     await applyBridge(getBridge())
-    return { ...result, warning: ensured.warning, deployed: ensured.deployed }
+    return {
+      ...result,
+      warning: probe.kind === 'unreachable'
+        ? `Modal CPU /health did not answer yet (${probe.detail}). Catalog may fail until the container is up.`
+        : undefined,
+    }
   })
 }

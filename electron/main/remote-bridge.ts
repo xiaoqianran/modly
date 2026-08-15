@@ -61,9 +61,18 @@ export async function tryStartRemoteGateway(key: object, host: RemoteBridgeHost)
   return true
 }
 
+export async function dropRemoteCompute(): Promise<void> {
+  try {
+    await axios.post(`${API_BASE_URL}/model/unload-all`, {}, { timeout: 5000 })
+  } catch {
+    /* gateway or Modal already gone */
+  }
+}
+
 export async function tryStopRemoteGateway(key: object, host: RemoteBridgeHost): Promise<boolean> {
   const gateway = gateways.get(key)
   if (!gateway) return false
+  await dropRemoteCompute()
   gateways.delete(key)
   host.setReady(false)
   await gateway.stop()

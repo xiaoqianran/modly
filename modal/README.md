@@ -23,6 +23,10 @@ modal deploy modal/app.py
 modal run modal/app.py::bake_official_extensions   # CPU clone + CPU HF + GPU setup.py
 ```
 
+On Windows, double-click `scripts/deploy-modal.bat` instead: uv creates
+`.venv-modal`, installs the CLI extra, opens Modal login, then deploys.
+The Electron app does not spawn `modal` (that was `spawn EINVAL` on Windows).
+
 `api-proxy-support` is the default local install. Plain `modal` cannot talk
 to `api.modal.com` through `HTTPS_PROXY` / `ALL_PROXY` (HTTP CONNECT or
 SOCKS4/5). Opt out with `MODAL_DISABLE_API_PROXY=1` or

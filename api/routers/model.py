@@ -84,6 +84,8 @@ async def switch_model(model_id: str):
 async def unload_all_models():
     """Unloads all models from memory to free VRAM/RAM."""
     generator_registry.unload_all()
+    from services.overlay_hooks import after_unload_all
+    after_unload_all()
     # Force Python to release memory back to the OS
     import gc
     gc.collect()

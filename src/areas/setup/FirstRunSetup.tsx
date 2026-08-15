@@ -127,7 +127,7 @@ function ChoosePathPanel({
       {remoteOpen && (
         <div className="mt-3 space-y-2">
           <p className="text-[11px] text-zinc-500">
-            Stays in this app until you quit. If this workspace has no `modly-backend` yet, Connect deploys the CPU app (needs the `modal` CLI; first time can take several minutes).
+            Stays in this app until you quit. First time on Windows: double-click `scripts\deploy-modal.bat` (uv creates a temp venv, you log in, it deploys the empty shell). Connect does not install modal.
           </p>
           <input
             value={tokenSetCommand}

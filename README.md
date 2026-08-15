@@ -55,16 +55,24 @@ npm run dev
 
 会弹出 Electron 窗口。这就是日常启动方式，不是去 Releases 下 exe。
 
-### 3. 第一次打开
+### 3. 第一次：先登记云端空壳，再开 App
 
-选 **Use a Modal cloud backend instead**。可以二选一，都只活在**这一次打开的 App 里**，不写本机 settings 文件夹：
+**`modal deploy` 不是一直开着的机器。** 它只在你的 Modal 账号里登记 `modly-backend`（CPU FastAPI + GPU 工人的名字和 URL）。空闲是 **0 个 CPU、0 张 GPU**，不按「部署着」按小时收费。关掉 `npm run dev` **不会删掉**这次登记；正在跑的 GPU 会在退出时被要求 2 秒内卸掉，CPU 几秒后缩到 0。
 
-- **Modal CLI token**：把 `token-id` / `token-secret`（或整行 `modal token set --token-id … --token-secret …`）贴进 App。进程里会去问 Modal 你的 workspace，再拼出 `https://<workspace>--modly-backend-fastapi-app.modal.run`。关掉 App 就忘。
-- **或者**直接贴已经 `modal deploy modal/app.py` 出来的 `https://…modal.run` URL。
+Windows 上双击（需要已安装 [uv](https://docs.astral.sh/uv/)）：
+
+```bat
+scripts\deploy-modal.bat
+```
+
+脚本用 uv 在项目里建临时 `.venv-modal`，只往这个 venv 装 `modal[api-proxy-support]`，然后让你登录 Modal，再 `modal deploy modal/app.py`。日常跑 Electron **不用**这个 venv，也 **不用**本机再装 modal。
+
+然后 `npm run dev`，选 **Use a Modal cloud backend instead** / Settings → Connect this session：
+
+- 把 `token-id` / `token-secret`（或整行 `modal token set …`）贴进 App。只活在这一次打开的进程里，不写 settings 文件夹。
+- 或者贴 deploy 打印出来的 `https://…modal.run` URL。
 
 下面那个 **API token / Bearer** 是可选的 FastAPI 口令，**不是** `ak-` / `as-` 那一对。
-
-云端还没有 `modly-backend` 的话，Connect 会用这对 token 跑一次 `modal deploy modal/app.py`（本机要有 `modal` CLI，第一次编镜像可能要几分钟）。也可以自己先 deploy，再贴打印出来的 `https://…modal.run` URL。
 
 已经进主界面了，也可以：**Settings → Application → Compute backend → Modal → Connect this session**。停留秒数（默认 60）和 GPU 卡仍可「Save backend」记在这台电脑；CLI token 不会进 `settings.json`。
 
