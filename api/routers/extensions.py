@@ -5,12 +5,24 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from services.extension_catalog import list_model_extension_manifests
+from services.extension_install import (
+    clear_incomplete,
+    download_github_tarball,
+    extract_extension,
+    parse_github_repo,
+    remove_extension,
+)
+from services.modal_runtime import commit_volume, spawn_extension_setup
 
 router = APIRouter(tags=["extensions"])
 
 
 class GithubInstallRequest(BaseModel):
     url: str
+
+
+class ExtensionIdRequest(BaseModel):
+    id: str
 
 
 @router.get("/catalog")
@@ -21,11 +33,56 @@ async def extension_catalog():
 
 
 @router.post("/install-from-github")
-async def install_from_github(_body: GithubInstallRequest):
-    raise HTTPException(
-        501,
-        "Remote GitHub installs are not enabled. Bake official model extensions into the Modal Volume.",
-    )
+async def install_from_github(body: GithubInstallRequest):
+    from services.generator_registry import EXTENSIONS_DIR, generator_registry
+
+    if EXTENSIONS_DIR is None:
+        raise HTTPException(400, "EXTENSIONS_DIR not configured")
+    try:
+        owner, repo = parse_github_repo(body.url)
+        tarball = await asyncio.to_thread(download_github_tarball, owner, repo)
+        ext_id = await asyncio.to_thread(
+            extract_extension,
+            tarball,
+            EXTENSIONS_DIR,
+            f"https://github.com/{owner}/{repo}",
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"GitHub download failed: {exc}") from exc
+
+    if spawn_extension_setup(ext_id):
+        commit_volume("modly-extensions")
+        return {"success": True, "extensionId": ext_id, "queued": True}
+
+    await setup_extension(ext_id)
+    clear_incomplete(EXTENSIONS_DIR, ext_id)
+    generator_registry.reload()
+    commit_volume("modly-extensions")
+    return {"success": True, "extensionId": ext_id}
+
+
+@router.post("/uninstall")
+async def uninstall_extension(body: ExtensionIdRequest):
+    from services.generator_registry import EXTENSIONS_DIR, generator_registry
+
+    try:
+        remove_extension(EXTENSIONS_DIR, body.id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    generator_registry.reload()
+    commit_volume("modly-extensions")
+    return {"success": True}
+
+
+@router.post("/repair")
+async def repair_extension(body: ExtensionIdRequest):
+    if spawn_extension_setup(body.id):
+        return {"success": True, "queued": True}
+    result = await setup_extension(body.id)
+    commit_volume("modly-extensions")
+    return {"success": True, **result}
 
 
 @router.post("/reload")

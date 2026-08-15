@@ -206,7 +206,13 @@ modal deploy modal/app.py
 
 上游以后加 `POST /something-new`：网关默认 `proxy`，**不用改代码**。
 
-### Phase 2 — 官方模型预装 + 目录 API
+### Phase 2 — 官方模型预装 + 目录 API（已接线）
+
+```bash
+modal run modal/app.py::setup_official_extensions
+```
+
+### Phase 2 notes — 官方模型预装 + 目录 API
 
 - 写一个 Modal `setup_official_extensions`：clone 官方 Hunyuan / TRELLIS repo 到 extensions Volume，在 GPU 容器里跑它们的 `setup.py`。
 - FastAPI 增加 `GET /extensions/catalog`（已有）。把官方 Hunyuan / TRELLIS 预装进 Volume 后，现有 `extensions:list` shim 会自动列出它们。
@@ -214,12 +220,12 @@ modal deploy modal/app.py
 
 验收：Models 页能看到云端的 Hunyuan / TRELLIS，点下载进度能走完，Volume 里出现权重。
 
-### Phase 3 — 生成闭环
+### Phase 3 — 生成闭环（已接线）
 
-- `_jobs` 迁到 `modal.Dict`。
-- CPU ASGI 收图 → 写 workspace Volume → `.spawn()` GPU worker → worker 更新 Dict。
+- `_jobs` 经 `api/services/job_store.py`：本地内存，Modal 上 `modal.Dict`。
+- CPU ASGI 收图 → `GpuGenerator.generate.spawn` → worker 更新 Dict。
 - 前端 **不用改** `useGeneration` / 轮询（仍然是 job_id + `/generate/status`）。
-- `POST /generate/from-image` 已经是 multipart 上传，这条线天然适合 remote。
+- `POST /generate/from-image` 已经是 multipart 上传。
 
 验收：本机选一张图 → Generate → 进度条动 → Viewer 里出现 GLB。
 

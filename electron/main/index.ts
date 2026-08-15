@@ -1,6 +1,7 @@
 import { app, BrowserWindow, shell, session } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { installIpcIntercept } from './ipc-intercept'
 import { setupIpcHandlers } from './ipc-handlers'
 import { PythonBridge } from './python-bridge'
 import { logger, archiveCurrentSession } from './logger'
@@ -104,6 +105,7 @@ app.whenReady().then(async () => {
   // Start Python FastAPI backend
   pythonBridge = new PythonBridge()
   pythonBridge.setWindowGetter(() => mainWindow)
+  installIpcIntercept()
   setupIpcHandlers(pythonBridge, () => mainWindow)
   initAutoUpdater(() => mainWindow)
 

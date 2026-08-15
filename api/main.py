@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi import HTTPException
 
-from routers import generation, model, optimize, status, settings, extensions, export, workflow_runs, agent
+from routers import generation, model, optimize, status, settings, extensions, export, workflow_runs, agent, desktop_ipc
 
 
 @asynccontextmanager
@@ -54,6 +54,23 @@ app.include_router(extensions.router, prefix="/extensions")
 app.include_router(export.router,          prefix="/export")
 app.include_router(workflow_runs.router,   prefix="/workflow-runs")
 app.include_router(agent.router)
+app.include_router(desktop_ipc.router)
+
+
+@app.middleware("http")
+async def _optional_bearer(request, call_next):
+    import os
+    token = os.environ.get("MODLY_API_TOKEN", "").strip()
+    if not token:
+        return await call_next(request)
+    path = request.url.path
+    if path in ("/health", "/docs", "/openapi.json", "/redoc"):
+        return await call_next(request)
+    auth = request.headers.get("authorization", "")
+    if auth != f"Bearer {token}":
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    return await call_next(request)
 
 # Serve generated files from workspace — dynamic so path changes take effect immediately
 @app.get("/workspace/{full_path:path}")

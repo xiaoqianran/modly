@@ -1,13 +1,14 @@
 import json
-import threading
 import uuid
 from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from routers.generation import _cancel_events, _cancelled, _jobs, _run_generation
+from routers.generation import _run_generation
 from schemas.generation import JobStatus
 from services.generator_registry import generator_registry
+from services.job_store import get_job_store
+from services.modal_runtime import spawn_gpu_generation
 
 router = APIRouter(tags=["workflow-runs"])
 
@@ -54,17 +55,19 @@ async def create_run_from_image(
     job_id = str(uuid.uuid4())
     image_bytes = await image.read()
 
-    _jobs[job_id] = JobStatus(job_id=job_id, status="pending", progress=0)
-    _cancel_events[job_id] = threading.Event()
+    store = get_job_store()
+    store.put(JobStatus(job_id=job_id, status="pending", progress=0))
+    store.cancel_event(job_id)
 
-    background_tasks.add_task(_run_generation, job_id, image_bytes, full_params, "Default")
+    if not spawn_gpu_generation(job_id, model_id, image_bytes, full_params, "Default"):
+        background_tasks.add_task(_run_generation, job_id, image_bytes, full_params, "Default")
 
     return {"run_id": job_id, "status": "pending"}
 
 
 @router.get("/{run_id}", response_model=WorkflowRunStatus)
 async def get_run(run_id: str):
-    job = _jobs.get(run_id)
+    job = get_job_store().get(run_id)
     if not job:
         raise HTTPException(404, f"Run {run_id} not found")
 
@@ -85,15 +88,12 @@ async def get_run(run_id: str):
 
 @router.post("/{run_id}/cancel")
 async def cancel_run(run_id: str):
-    job = _jobs.get(run_id)
+    store = get_job_store()
+    job = store.get(run_id)
     if not job:
         raise HTTPException(404, f"Run {run_id} not found")
 
-    _cancelled.add(run_id)
-    if run_id in _cancel_events:
-        _cancel_events[run_id].set()
-    if job.status in ("pending", "running"):
-        job.status = "cancelled"
+    store.mark_cancel(run_id)
 
     try:
         gen = generator_registry._generators.get(generator_registry._active_id)

@@ -23,7 +23,7 @@ flowchart TB
   UI --> API
   UI --> IPCUI
   API -->|"always http://127.0.0.1:8765"| PORT["Port 8765"]
-  IPCUI --> SHIM["ipc-handlers shims only"]
+  IPCUI --> SHIM["ipc-intercept wraps ipcMain.handle"]
   SHIM -->|"same 8765"| PORT
 
   PORT -->|"local mode"| UV["uvicorn api/main.py on this machine"]
@@ -74,7 +74,10 @@ When `backendMode` is `remote` (or `MODLY_REMOTE_API_URL` is set), Electron star
 
 1. **Proxies** almost every HTTP request to the Modal FastAPI URL (new upstream routes work with no renderer change).
 2. **Translates** the few host-path operations (`/optimize/import-by-path`, `/workspace/...` prefetch for process nodes).
-3. **Shims** a small set of IPC handlers that scan disk (`model:isDownloaded`, `extensions:list`, first-run `setup:check`).
+3. **Intercepts IPC at `ipcMain.handle`** (`electron/main/ipc-intercept.ts`).
+   Classification is by prefix (`electron/main/ipc-policy.ts`), not by
+   editing `ipc-handlers.ts`. Upstream can change that 1600-line file
+   without a Modal conflict.
 
 ## What you do **not** change when lightningpixel/modly adds a feature
 
@@ -83,7 +86,7 @@ When `backendMode` is `remote` (or `MODLY_REMOTE_API_URL` is set), Electron star
 | New FastAPI route used by `useApi()` | None — gateway proxies it |
 | New Generate / Viewer / Workflow UI | None — still talks to 8765 |
 | New job type that writes `/workspace/...` | None if the UI reads via HTTP; process nodes get prefetch |
-| New “scan local models folder” IPC | Add one shim in `electron/main/ipc-handlers.ts` |
+| New `model:*` / `extensions:*` IPC | None — prefix forwards to `POST /desktop/ipc` |
 | New host-absolute path POST | Add one translator in `remote-gateway.ts` |
 
 Do **not** rewrite `appStore`, `useApi`, Generate, Viewer, or Workflow to know about Modal.

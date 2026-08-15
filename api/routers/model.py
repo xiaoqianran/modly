@@ -277,6 +277,8 @@ async def hf_download(
                 })
 
             yield _fmt({"percent": 100, "status": "done"})
+            from services.modal_runtime import commit_volume
+            commit_volume("modly-models")
 
         except DownloadPaused:
             yield _fmt({"paused": True, "status": "paused"})

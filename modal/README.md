@@ -38,11 +38,20 @@ Expected: `{"status":"ok"}`.
 - `api/requirements.txt` (FastAPI, trimesh, huggingface_hub, …)
 - Three Volumes: `modly-models`, `modly-workspace`, `modly-extensions`
 
-It does **not** yet contain:
+After deploy, bake official model extensions (GPU, once):
 
-- Official Hunyuan / TRELLIS extension venvs (Phase 2)
-- GPU-backed `/generate` (Phase 3; `GpuGenerator` is a placeholder)
-- Bearer auth (Phase 5)
+```bash
+modal run modal/app.py::setup_official_extensions
+```
+
+That clones Hunyuan Mini / TripoSG / TRELLIS.2 onto `modly-extensions`
+and runs each `setup.py` on an L40S/L4/A100.
+
+Optional public-URL auth: set `MODLY_API_TOKEN` on the Modal app, and the
+same value in Modly settings / `MODLY_REMOTE_API_TOKEN`. `/health` stays open.
+
+`POST /generate/from-image` spawns `GpuGenerator`; job status lives in
+`modal.Dict` (`modly-jobs`) so polling is not stuck to one container.
 
 ## Secrets
 
