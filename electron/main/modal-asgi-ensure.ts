@@ -84,31 +84,102 @@ export function findModalAppPy(cwd = process.cwd(), extraRoots: string[] = []): 
 }
 
 const DEPLOY_TIMEOUT_MS = 12 * 60_000
+const CLI_MISSING_HELP =
+  'modal CLI not found. In the repo folder run: pip install modal && modal deploy modal/app.py  then Connect again (or paste the printed https://…modal.run URL).'
+
+export function decodeSpawnChunk(buf: Buffer | string): string {
+  if (typeof buf === 'string') return buf
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
+    return buf.subarray(2).toString('utf16le')
+  }
+  if (buf.length >= 4 && buf[1] === 0 && buf[3] === 0 && buf[0] !== 0) {
+    return buf.toString('utf16le')
+  }
+  const utf8 = buf.toString('utf8')
+  if (!utf8.includes('\uFFFD')) return utf8
+  try {
+    return new TextDecoder('gbk').decode(buf)
+  } catch {
+    return utf8
+  }
+}
+
+export function isMissingCommandOutput(text: string, command = 'modal'): boolean {
+  if (/not recognized|is not recognized|not found|command not found|ENOENT/i.test(text)) return true
+  if (/不是内部或外部命令|不是可运行的程序|无法识别|不是内部或外部/.test(text)) return true
+  const stripped = text.replace(/\uFFFD/g, '').trim()
+  if (new RegExp(`^['"]${command}['"]\\s*$`).test(stripped)) return true
+  if (text.includes('\uFFFD') && new RegExp(`['"]${command}['"]`).test(text)) return true
+  return false
+}
+
+export function sanitizeDeployDetail(text: string): string {
+  const cleaned = redactModalSecrets(text)
+    .replace(/\uFFFD+/g, ' ')
+    .replace(/[^\t\n\r\x20-\x7e\u4e00-\u9fff]/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  if (!cleaned || isMissingCommandOutput(cleaned) || /^['"]modal['"]$/.test(cleaned)) {
+    return CLI_MISSING_HELP
+  }
+  return cleaned.slice(-800)
+}
+
+export function modalDeployAttempts(pythonHints: string[] = []): Array<{ cmd: string; args: string[] }> {
+  const attempts: Array<{ cmd: string; args: string[] }> = []
+  const seen = new Set<string>()
+  const push = (cmd: string, args: string[]) => {
+    const key = `${cmd} ${args.join(' ')}`
+    if (seen.has(key)) return
+    seen.add(key)
+    attempts.push({ cmd, args })
+  }
+
+  for (const py of pythonHints) {
+    if (!py) continue
+    const dir = dirname(py)
+    for (const name of ['modal.exe', 'modal.cmd', 'modal']) {
+      const bin = join(dir, name)
+      if (existsSync(bin)) push(bin, ['deploy', 'modal/app.py'])
+    }
+  }
+
+  if (process.platform === 'win32') {
+    push('modal.cmd', ['deploy', 'modal/app.py'])
+    push('modal.exe', ['deploy', 'modal/app.py'])
+  }
+  push('modal', ['deploy', 'modal/app.py'])
+
+  const pythons = [
+    ...pythonHints,
+    process.platform === 'win32' ? 'python' : 'python3',
+    'python',
+    'python3',
+    ...(process.platform === 'win32' ? ['py'] : []),
+  ]
+  for (const py of pythons) {
+    if (!py) continue
+    if (py === 'py') push('py', ['-3', '-m', 'modal', 'deploy', 'modal/app.py'])
+    else push(py, ['-m', 'modal', 'deploy', 'modal/app.py'])
+  }
+  return attempts
+}
 
 export function deployModalApp(opts: {
   tokenId: string
   tokenSecret: string
   appPy: string
+  pythonHints?: string[]
   spawnImpl?: typeof spawn
 }): Promise<{ ok: boolean; detail: string }> {
   const repoRoot = dirname(dirname(opts.appPy))
-  const attempts: Array<{ cmd: string; args: string[] }> = [
-    { cmd: 'modal', args: ['deploy', 'modal/app.py'] },
-    {
-      cmd: process.platform === 'win32' ? 'py' : 'python3',
-      args: process.platform === 'win32'
-        ? ['-3', '-m', 'modal', 'deploy', 'modal/app.py']
-        : ['-m', 'modal', 'deploy', 'modal/app.py'],
-    },
-  ]
+  const attempts = modalDeployAttempts(opts.pythonHints ?? [])
 
   const run = (index: number): Promise<{ ok: boolean; detail: string }> => {
     const attempt = attempts[index]
     if (!attempt) {
-      return Promise.resolve({
-        ok: false,
-        detail: 'modal CLI not found. Install `pip install modal` and run `modal deploy modal/app.py`.',
-      })
+      return Promise.resolve({ ok: false, detail: CLI_MISSING_HELP })
     }
     return new Promise((resolve) => {
       const child: ChildProcess = (opts.spawnImpl ?? spawn)(attempt.cmd, attempt.args, {
@@ -118,11 +189,11 @@ export function deployModalApp(opts: {
           MODAL_TOKEN_ID: opts.tokenId,
           MODAL_TOKEN_SECRET: opts.tokenSecret,
         },
-        shell: process.platform === 'win32',
+        windowsHide: true,
       })
       const chunks: string[] = []
       const take = (buf: Buffer | string) => {
-        chunks.push(typeof buf === 'string' ? buf : buf.toString('utf8'))
+        chunks.push(decodeSpawnChunk(buf))
       }
       child.stdout?.on('data', take)
       child.stderr?.on('data', take)
@@ -136,20 +207,20 @@ export function deployModalApp(opts: {
           void run(index + 1).then(resolve)
           return
         }
-        resolve({ ok: false, detail: redactModalSecrets(err.message) })
+        resolve({ ok: false, detail: sanitizeDeployDetail(err.message) })
       })
       child.on('close', (code) => {
         clearTimeout(timer)
-        const detail = redactModalSecrets(chunks.join('')).trim().slice(-1500)
+        const raw = chunks.join('')
         if (code === 0) {
-          resolve({ ok: true, detail: detail || 'modal deploy finished' })
+          resolve({ ok: true, detail: sanitizeDeployDetail(raw) || 'modal deploy finished' })
           return
         }
-        if (code === 127 || /not recognized|not found/i.test(detail)) {
+        if (code === 127 || isMissingCommandOutput(raw, 'modal') || isMissingCommandOutput(raw, attempt.cmd)) {
           void run(index + 1).then(resolve)
           return
         }
-        resolve({ ok: false, detail: detail || `modal deploy exited ${code}` })
+        resolve({ ok: false, detail: sanitizeDeployDetail(raw) || `modal deploy exited ${code}` })
       })
     })
   }
@@ -163,6 +234,7 @@ export async function ensureModalCpuAsgi(opts: {
   tokenSecret?: string
   bearerToken?: string
   extraAppRoots?: string[]
+  pythonHints?: string[]
 }, deps: EnsureAsgiDeps = {}): Promise<EnsureAsgiResult> {
   const probe = deps.probe ?? probeModalAsgi
   const first = await probe(opts.apiUrl, opts.bearerToken)
@@ -196,7 +268,7 @@ export async function ensureModalCpuAsgi(opts: {
     }
   }
 
-  const deploy = deps.deploy ?? ((args) => deployModalApp(args))
+  const deploy = deps.deploy ?? ((args) => deployModalApp({ ...args, pythonHints: opts.pythonHints }))
   const deployed = await deploy({ tokenId, tokenSecret, appPy })
   if (!deployed.ok) {
     return {

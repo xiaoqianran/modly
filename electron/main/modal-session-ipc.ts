@@ -3,10 +3,12 @@
  * Classified `local` — tokens never go to Modal HTTP.
  */
 
+import { existsSync } from 'node:fs'
 import { app, ipcMain } from 'electron'
 import type { ModalSessionConnectInput } from '../../src/shared/modalSession'
 import { tryResolveConnectCredentials } from '../../src/shared/modalSession'
 import { ensureModalCpuAsgi } from './modal-asgi-ensure'
+import { getVenvPythonExe } from './python-setup'
 import {
   clearModalSession,
   connectModalSession,
@@ -40,12 +42,14 @@ export function setupModalSessionIpc(getBridge: () => PythonBridge | null): void
     const result = await connectModalSession(input ?? {})
     if (!result.ok) return result
     const creds = tryResolveConnectCredentials(input ?? {})
+    const venvPython = getVenvPythonExe(app.getPath('userData'))
     const ensured = await ensureModalCpuAsgi({
       apiUrl: result.apiUrl,
       tokenId: creds?.tokenId,
       tokenSecret: creds?.tokenSecret,
       bearerToken: (input?.bearerToken ?? '').trim(),
       extraAppRoots: [app.getAppPath(), process.cwd()],
+      pythonHints: existsSync(venvPython) ? [venvPython] : [],
     })
     if (!ensured.ok) {
       clearModalSession()
