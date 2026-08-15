@@ -7,6 +7,28 @@ import {
   overlayRemoteSettings,
 } from './modal-session.ts'
 
+test('a pasted CLI command with empty token fields still looks up the workspace', async () => {
+  clearModalSession()
+  const result = await connectModalSession(
+    {
+      tokenSetCommand: 'modal token set --token-id ak-EXAMPLE --token-secret as-EXAMPLE',
+      tokenId: '',
+      tokenSecret: '',
+    },
+    { fetchImpl: (async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ username: 'pythonmoive' }),
+    })) as unknown as typeof fetch,
+      grpcLookup: async () => 'pythonmoive',
+    },
+  )
+  assert.equal(result.ok, true)
+  assert.equal(result.workspace, 'pythonmoive')
+  assert.equal(result.apiUrl, 'https://pythonmoive--modly-backend-fastapi-app.modal.run')
+  clearModalSession()
+})
+
 test('token connect stores only the resolved URL in memory', async () => {
   clearModalSession()
   const result = await connectModalSession(

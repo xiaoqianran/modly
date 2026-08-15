@@ -14,7 +14,11 @@ export type WorkspaceLookupDeps = {
 
 const DEFAULT_REST = 'https://api.modal.com'
 const GRPC_AUTHORITY = 'https://api.modal.com'
-const GRPC_PATH = '/modal.client.ModalClient/WorkspaceNameLookup'
+const GRPC_CLIENT_VERSION = '1.3.1'
+const GRPC_PATHS = [
+  '/modal.client.ModalClient/WorkspaceNameLookup',
+  '/modal.client.ModalClient/TokenInfoGet',
+] as const
 
 export function decodeProtoStrings(buf: Uint8Array): Array<{ field: number; value: string }> {
   const out: Array<{ field: number; value: string }> = []
@@ -51,48 +55,122 @@ export function parseGrpcUnaryPayload(buf: Uint8Array): Uint8Array {
   return buf.subarray(5, 5 + length)
 }
 
-function workspaceFromProto(payload: Uint8Array): string | null {
+export type GrpcHeaderBag = Record<string, string | string[] | undefined>
+
+function headerValue(bag: GrpcHeaderBag, key: string): string {
+  const raw = bag[key]
+  if (Array.isArray(raw)) return String(raw[0] ?? '')
+  return raw == null ? '' : String(raw)
+}
+
+export function grpcStatusFromHeaders(
+  headers: GrpcHeaderBag,
+  trailers: GrpcHeaderBag = {},
+): { code: number | null; message: string } {
+  const raw = headerValue(headers, 'grpc-status') || headerValue(trailers, 'grpc-status')
+  const encoded = headerValue(headers, 'grpc-message') || headerValue(trailers, 'grpc-message')
+  let message = encoded
+  try {
+    message = decodeURIComponent(encoded)
+  } catch {
+    /* keep */
+  }
+  if (!raw) return { code: null, message }
+  const code = Number(raw)
+  return { code: Number.isFinite(code) ? code : null, message }
+}
+
+export function workspaceFromLookupPayload(payload: Uint8Array): string | null {
   const fields = decodeProtoStrings(payload)
   const username = fields.find((f) => f.field === 2)?.value
   const workspaceName = fields.find((f) => f.field === 1)?.value
   return extractWorkspaceSlug(username ?? workspaceName ?? '')
 }
 
-export async function lookupWorkspaceViaGrpc(tokenId: string, tokenSecret: string): Promise<string> {
-  const payload = await new Promise<Uint8Array>((resolve, reject) => {
+export function workspaceFromTokenInfoPayload(payload: Uint8Array): string | null {
+  const fields = decodeProtoStrings(payload)
+  return extractWorkspaceSlug(fields.find((f) => f.field === 3)?.value ?? '')
+}
+
+function flattenHeaders(headers: NodeJS.Dict<string | string[]>): GrpcHeaderBag {
+  const out: GrpcHeaderBag = {}
+  for (const [key, value] of Object.entries(headers)) {
+    out[key.toLowerCase()] = value
+  }
+  return out
+}
+
+async function grpcUnaryEmpty(
+  path: string,
+  tokenId: string,
+  tokenSecret: string,
+): Promise<{ payload: Uint8Array; status: { code: number | null; message: string } }> {
+  return new Promise((resolve, reject) => {
     const client = http2.connect(GRPC_AUTHORITY)
     const chunks: Buffer[] = []
+    let headers: GrpcHeaderBag = {}
+    let trailers: GrpcHeaderBag = {}
     let settled = false
-    const finish = (err?: Error, data?: Uint8Array) => {
+    const finish = (err?: Error, data?: { payload: Uint8Array; status: { code: number | null; message: string } }) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       try { client.close() } catch { /* already closed */ }
       if (err) reject(err)
-      else resolve(data ?? new Uint8Array())
+      else resolve(data ?? { payload: new Uint8Array(), status: { code: null, message: '' } })
     }
     const timer = setTimeout(() => finish(new Error('Modal workspace lookup timed out')), 12_000)
     client.on('error', (err) => finish(err instanceof Error ? err : new Error(String(err))))
     const req = client.request({
       ':method': 'POST',
-      ':path': GRPC_PATH,
+      ':path': path,
       'content-type': 'application/grpc',
       te: 'trailers',
       'x-modal-token-id': tokenId,
       'x-modal-token-secret': tokenSecret,
       'x-modal-client-type': '1',
-      'x-modal-client-version': '0.77.0',
+      'x-modal-client-version': GRPC_CLIENT_VERSION,
     })
+    req.on('response', (incoming) => { headers = flattenHeaders(incoming) })
+    req.on('trailers', (incoming) => { trailers = flattenHeaders(incoming) })
     req.on('error', (err) => finish(err instanceof Error ? err : new Error(String(err))))
     req.on('data', (chunk: Buffer) => { chunks.push(chunk) })
-    req.on('end', () => finish(undefined, Buffer.concat(chunks)))
+    req.on('end', () => {
+      const buf = Buffer.concat(chunks)
+      const status = grpcStatusFromHeaders(headers, trailers)
+      if (status.code !== null && status.code !== 0) {
+        finish(new Error(status.message || `Modal gRPC status ${status.code}`))
+        return
+      }
+      if (buf.length < 5) {
+        finish(new Error(status.message || 'short gRPC frame'))
+        return
+      }
+      try {
+        finish(undefined, { payload: parseGrpcUnaryPayload(buf), status })
+      } catch (err) {
+        finish(err instanceof Error ? err : new Error(String(err)))
+      }
+    })
     req.end(Buffer.from([0, 0, 0, 0, 0]))
   })
+}
 
-  const proto = parseGrpcUnaryPayload(payload)
-  const slug = workspaceFromProto(proto)
-  if (!slug) throw new Error('Modal gRPC lookup returned no workspace name')
-  return slug
+export async function lookupWorkspaceViaGrpc(tokenId: string, tokenSecret: string): Promise<string> {
+  const errors: string[] = []
+  for (const path of GRPC_PATHS) {
+    try {
+      const { payload } = await grpcUnaryEmpty(path, tokenId, tokenSecret)
+      const slug = path.endsWith('TokenInfoGet')
+        ? workspaceFromTokenInfoPayload(payload)
+        : workspaceFromLookupPayload(payload)
+      if (slug) return slug
+      errors.push(`${path} returned no workspace name`)
+    } catch (err) {
+      errors.push(redactModalSecrets(err instanceof Error ? err.message : String(err)))
+    }
+  }
+  throw new Error(errors.filter(Boolean).join(' / ') || 'Modal gRPC lookup returned no workspace name')
 }
 
 function authHeaderSets(tokenId: string, tokenSecret: string): Array<Record<string, string>> {
@@ -119,7 +197,11 @@ async function lookupWorkspaceViaRest(
           headers: { Accept: 'application/json', ...headers },
           signal: AbortSignal.timeout(10_000),
         })
-        const text = await res.text()
+        const text = (await res.text()).trim()
+        if (!text) {
+          lastError = `Modal API ${res.status} empty body`
+          continue
+        }
         if (!res.ok) {
           lastError = `Modal API ${res.status}`
           continue
@@ -128,6 +210,7 @@ async function lookupWorkspaceViaRest(
         try { parsed = JSON.parse(text) } catch { /* keep text */ }
         const slug = extractWorkspaceSlug(parsed)
         if (slug) return slug
+        lastError = `Modal API ${res.status} unrecognized JSON`
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err)
       }
@@ -145,20 +228,20 @@ export async function lookupModalWorkspace(
   const restBaseUrl = (deps.restBaseUrl ?? DEFAULT_REST).replace(/\/+$/, '')
   const errors: string[] = []
 
-  if (fetchImpl) {
-    try {
-      return await lookupWorkspaceViaRest(tokenId, tokenSecret, fetchImpl, restBaseUrl)
-    } catch (err) {
-      errors.push(redactModalSecrets(err instanceof Error ? err.message : String(err)))
-    }
-  }
-
   const grpcLookup = deps.grpcLookup ?? lookupWorkspaceViaGrpc
   try {
     const slug = slugifyModalWorkspace(await grpcLookup(tokenId, tokenSecret))
     if (slug) return slug
   } catch (err) {
     errors.push(redactModalSecrets(err instanceof Error ? err.message : String(err)))
+  }
+
+  if (fetchImpl) {
+    try {
+      return await lookupWorkspaceViaRest(tokenId, tokenSecret, fetchImpl, restBaseUrl)
+    } catch (err) {
+      errors.push(redactModalSecrets(err instanceof Error ? err.message : String(err)))
+    }
   }
 
   throw new Error(

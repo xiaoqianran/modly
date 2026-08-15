@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAppStore, SetupProgress } from '@shared/stores/appStore'
-import type { ModalSessionConnectInput } from '@shared/modalSession'
+import { absorbModalTokenPaste, type ModalSessionConnectInput } from '@shared/modalSession'
 
 // ─── Logo (shared) ──────────────────────────────────────────────────────────
 
@@ -131,14 +131,34 @@ function ChoosePathPanel({
           </p>
           <input
             value={tokenSetCommand}
-            onChange={(e) => { setTokenSetCommand(e.target.value); setRemoteErr(null) }}
+            onChange={(e) => {
+              const next = absorbModalTokenPaste(
+                { tokenSetCommand, tokenId, tokenSecret },
+                'tokenSetCommand',
+                e.target.value,
+              )
+              setTokenSetCommand(next.tokenSetCommand)
+              setTokenId(next.tokenId)
+              setTokenSecret(next.tokenSecret)
+              setRemoteErr(null)
+            }}
             placeholder="modal token set --token-id ak-… --token-secret as-…"
             spellCheck={false}
             className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700/60 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
           />
           <input
             value={tokenId}
-            onChange={(e) => { setTokenId(e.target.value); setRemoteErr(null) }}
+            onChange={(e) => {
+              const next = absorbModalTokenPaste(
+                { tokenSetCommand, tokenId, tokenSecret },
+                'tokenId',
+                e.target.value,
+              )
+              setTokenSetCommand(next.tokenSetCommand)
+              setTokenId(next.tokenId)
+              setTokenSecret(next.tokenSecret)
+              setRemoteErr(null)
+            }}
             placeholder="token-id (ak-…)"
             spellCheck={false}
             autoComplete="off"
@@ -147,7 +167,17 @@ function ChoosePathPanel({
           <input
             type="password"
             value={tokenSecret}
-            onChange={(e) => { setTokenSecret(e.target.value); setRemoteErr(null) }}
+            onChange={(e) => {
+              const next = absorbModalTokenPaste(
+                { tokenSetCommand, tokenId, tokenSecret },
+                'tokenSecret',
+                e.target.value,
+              )
+              setTokenSetCommand(next.tokenSetCommand)
+              setTokenId(next.tokenId)
+              setTokenSecret(next.tokenSecret)
+              setRemoteErr(null)
+            }}
             placeholder="token-secret (as-…)"
             spellCheck={false}
             autoComplete="off"
