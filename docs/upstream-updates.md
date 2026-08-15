@@ -4,16 +4,25 @@ Re-indexed **2026-08-15** with CodeGraph 1.5.0. Two trees, same tool:
 
 | Tree | Ref | Files | Nodes | Edges | `modal/` |
 |------|-----|------:|------:|------:|----------|
-| **This overlay** | `cursor/modal-run-ledger-d55c` | **202** | **2,751** | **6,966** | yes |
+| **This overlay** | `cursor/modal-user-prefs-d55c` | **217** | **2,955** | **7,583** | yes |
 | **Upstream, no Modal** | `lightningpixel/modly` `dev` @ `5aed279` (2026-08-13) | **179** | **2,496** | **6,318** | **none** |
 | Upstream `main` | still `b771e29` (2026-07-25) — our fork point | — | — | — | none |
 
-`src/` in both graphs: **96 vs 98** files. **88 are byte-identical**, including the whole generate stack.
+`src/` files on disk: **112 vs 111**. **100 are byte-identical**, including the whole generate stack (`useApi` / `useGeneration` / `appStore` / `GeneratePage` / HUD / Panel / Options / Viewer3D / ImageUpload / Models / Workflows). The 3 extra files here are new overlay-only (`modalPrefs.ts`, `modalPrefs.test.ts`, `appSettings.ts`). Differing shared `src/` files are Settings overlay, FirstRun remote, or **their** extension-install work (`extensionsStore` / `ExtensionDrawer`) which we did not fork.
 
 CodeGraph `query modal`:
 
-- Upstream: **1 hit** — `HelpModal` in `WorkflowsPage.tsx` (a UI dialog, not Modal.com).
-- Overlay: hits live in `modal/app.py`, `api/services/modal_*`, `job_store.ModalJobStore`, and two `import services.modal_runtime` lines in FastAPI routers. **No Generate / `useApi` / Models / Viewer symbol.**
+- Upstream: **1 hit** — `HelpModal` in `WorkflowsPage.tsx` (a UI dialog, not Modal.com). **No `gpuLinger` / `modalPrefs`.**
+- Overlay: hits live in `modal/app.py`, `api/services/modal_*`, `job_store.ModalJobStore`, Settings `ApplicationSection`, and `electron/main/remote-ipc.ts` (`afterSettingsSet`). **No Generate / `useApi` / Models / Viewer / `ipc-handlers.ts` symbol.**
+
+GPU linger / card prefs (2026-08-15, same index):
+
+- `callers useApi` is still the **same 6 edges** as upstream. `impact useApi` is still the **same 15 Generate symbols**. `ApplicationSection` is not in that graph.
+- `callers ApplicationSection` → only `SettingsPage`.
+- `callers modalPrefsBody` → `remote-ipc.afterSettingsSet` + unit test. Not `ipc-handlers.ts`.
+- `callers set_modal_prefs` → `POST /settings/modal` + tests.
+- `electron/main/ipc-handlers.ts` **byte-identical** to our `main` (0-byte diff). Official `settings:set` can merge without replaying a Modal POST.
+- File intersection vs upstream `dev` since the fork: `electron-api.ts` + `electron.d.ts` only. Their hunk is `needsRepair?` on install; ours is the settings type alias. **Different regions — git should auto-merge.**
 
 ---
 
@@ -29,7 +38,7 @@ CodeGraph `callers useApi` is **the same 6 edges** on both trees:
 
 `impact useApi` stays inside Generate HUD / Panel / ImageUpload / Viewer3D. None of those files import overlay code. They still do `axios.create({ baseURL: apiUrl })` with `apiUrl = http://127.0.0.1:8765`.
 
-`callers setupIpcHandlers` is still only `electron/main/index.ts` on both trees. We inserted **one extra call** in that file: `installIpcIntercept()` immediately before `setupIpcHandlers`. That wrap is the chokepoint. `ipc-handlers.ts` itself has **no** `remote` / `modal` branches — only three optional settings fields on `settings:set`.
+`callers setupIpcHandlers` is still only `electron/main/index.ts` on both trees. We inserted **one extra call** in that file: `installIpcIntercept()` immediately before `setupIpcHandlers`. That wrap is the chokepoint. `ipc-handlers.ts` itself has **no** `remote` / `modal` branches and **no** linger POST — `settings:set` is `wrap-settings-set` in `ipc-policy.ts`, and the Modal write lives in `remote-ipc.afterSettingsSet`.
 
 `callers spawn_gpu_generation` (overlay only): `generation.py` + `workflow_runs.py`. Local FastAPI still runs the in-process path when `MODLY_RUNTIME` is unset.
 

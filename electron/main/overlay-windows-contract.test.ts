@@ -108,7 +108,6 @@ const HTTP_OK_STILL_HITS_8765 = [
   'extensions:reload',
   'python:start',
   'api:updatePaths',
-  'settings:set',
   'setup:saveDataDir',
   'setup:run',
 ]
@@ -145,7 +144,7 @@ test('every preload invoke channel is classified; laptop chrome stays local', as
   for (const channel of invokes) {
     const disposition = classifyIpcChannel(channel)
     assert.ok(
-      ['local', 'http-ok', 'replace', 'wrap-setup', 'wrap-extensions-list', 'forward-unknown'].includes(disposition),
+      ['local', 'http-ok', 'replace', 'wrap-setup', 'wrap-extensions-list', 'wrap-settings-set', 'forward-unknown'].includes(disposition),
       `${channel} → ${disposition}`,
     )
     assert.ok(handles.includes(channel), `preload invoke ${channel} has no ipcMain.handle`)
@@ -156,6 +155,7 @@ test('every preload invoke channel is classified; laptop chrome stays local', as
   }
 
   assert.equal(classifyIpcChannel('extensions:runProcess'), 'http-ok')
+  assert.equal(classifyIpcChannel('settings:set'), 'wrap-settings-set')
   for (const channel of HTTP_OK_STILL_HITS_8765) {
     assert.equal(classifyIpcChannel(channel), 'http-ok', channel)
   }

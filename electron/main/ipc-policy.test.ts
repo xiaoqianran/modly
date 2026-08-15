@@ -22,6 +22,7 @@ test('setup and catalog are wraps so upstream handler text can merge unchanged',
   const { classifyIpcChannel } = await load()
   assert.equal(classifyIpcChannel('setup:check'), 'wrap-setup')
   assert.equal(classifyIpcChannel('extensions:list'), 'wrap-extensions-list')
+  assert.equal(classifyIpcChannel('settings:set'), 'wrap-settings-set')
 })
 
 test('local chrome never leaves the laptop', async () => {

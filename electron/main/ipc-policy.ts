@@ -16,6 +16,7 @@ export type IpcDisposition =
   | 'replace'
   | 'wrap-setup'
   | 'wrap-extensions-list'
+  | 'wrap-settings-set'
   | 'forward-unknown'
 
 const LOCAL_PREFIXES = [
@@ -56,7 +57,6 @@ const HTTP_OK = new Set([
   'python:status',
   'api:updatePaths',
   'settings:get',
-  'settings:set',
   'setup:saveDataDir',
   'setup:run',
 ])
@@ -66,6 +66,7 @@ const COMPUTE_PREFIXES = ['model:', 'extensions:', 'python:', 'setup:', 'api:']
 export function classifyIpcChannel(channel: string): IpcDisposition {
   if (channel === 'setup:check') return 'wrap-setup'
   if (channel === 'extensions:list') return 'wrap-extensions-list'
+  if (channel === 'settings:set') return 'wrap-settings-set'
   if (REPLACE.has(channel)) return 'replace'
   if (HTTP_OK.has(channel)) return 'http-ok'
   if (LOCAL_PREFIXES.some((p) => channel.startsWith(p))) return 'local'
