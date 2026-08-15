@@ -2,16 +2,16 @@
  * Single IPC chokepoint. Installed before setupIpcHandlers so every
  * ipcMain.handle — including ones upstream adds later — goes through
  * classifyIpcChannel. Renderer and ipc-handlers stay Modal-unaware.
+ *
+ * The switch itself lives in ipc-dispatch.ts so tests do not load Electron.
  */
 
 import { ipcMain } from 'electron'
 import { app } from 'electron'
-import { classifyIpcChannel } from './ipc-policy'
+import { dispatchRemoteIpc, type IpcListener } from './ipc-dispatch'
 import { resolveRemoteBackend } from './remote-backend'
 import { getSettings } from './settings-store'
 import { forwardUnknown, mergeRemoteExtensionCatalog, remoteReplaceIpc } from './remote-ipc'
-
-type IpcListener = (event: unknown, ...args: unknown[]) => unknown
 
 function remoteEnabled(): boolean {
   try {
@@ -28,34 +28,11 @@ export function installIpcIntercept(): void {
       if (!remoteEnabled()) {
         return listener(event, ...args)
       }
-
-      const disposition = classifyIpcChannel(channel)
-      switch (disposition) {
-        case 'local':
-        case 'http-ok':
-          return listener(event, ...args)
-        case 'replace':
-          return remoteReplaceIpc(channel, args)
-        case 'wrap-setup': {
-          const result = await listener(event, ...args) as { needed?: boolean }
-          return { ...result, needed: false }
-        }
-        case 'wrap-extensions-list': {
-          const listed = await listener(event, ...args)
-          return mergeRemoteExtensionCatalog(listed)
-        }
-        case 'forward-unknown':
-          try {
-            return await forwardUnknown(channel, args)
-          } catch (err) {
-            if (err instanceof Error && err.message === 'desktop-ipc-fallback') {
-              return listener(event, ...args)
-            }
-            throw err
-          }
-        default:
-          return listener(event, ...args)
-      }
+      return dispatchRemoteIpc(channel, event, args, listener, {
+        replace: remoteReplaceIpc,
+        mergeCatalog: mergeRemoteExtensionCatalog,
+        forward: forwardUnknown,
+      })
     })
   }) as typeof ipcMain.handle
 }

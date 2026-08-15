@@ -8,6 +8,7 @@ from services.generators.base import smooth_progress, GenerationCancelled
 
 import re as _re
 from services.generator_registry import generator_registry, WORKSPACE_DIR
+from services.generate_dispatch import after_gpu_spawn, spawn_error_message
 from services.job_store import get_job_store
 from services.modal_runtime import commit_volume, is_modal_runtime, spawn_gpu_generation, stop_run_compute
 from services.run_tracker import (
@@ -82,12 +83,13 @@ async def generate_from_image(
     open_run(job_id, model_id, "generate")
 
     spawned = spawn_gpu_generation(job_id, model_id, image_bytes, full_params, collection)
-    if spawned.started:
+    plan = after_gpu_spawn(spawned, modal=is_modal_runtime())
+    if plan == "gpu-worker":
         note_spawn(job_id, spawned.call_id)
         return {"job_id": job_id}
 
-    if is_modal_runtime():
-        err = spawned.error or "GPU worker spawn failed"
+    if plan == "spawn-error":
+        err = spawn_error_message(spawned)
         note_spawn_failed(job_id, err)
         store.update(job_id, status="error", error=err)
         return {"job_id": job_id}

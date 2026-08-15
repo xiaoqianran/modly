@@ -110,6 +110,30 @@ export MODLY_REMOTE_API_TOKEN=...   # optional
 
 Restart the app after changing backend mode.
 
+## Cheap contract tests (no GPU, no `modal deploy`)
+
+Live Modal smoke (unknown model 400, `/health` must not wake CPU, cancel must
+stop the FunctionCall, catalog skips `.modly-incomplete`, spawn failure must
+not CPU-fallback) is locked in as unit tests. They do **not** sit inside
+`GpuGenerator.generate` or `useApi`.
+
+| Suite | What it freezes |
+|---|---|
+| `electron/main/overlay-windows-contract.test.ts` | Every `window.electron.invoke` + every `useApi` HTTP path: local vs 8765 vs Modal |
+| `electron/main/ipc-dispatch.test.ts` | Intercept switch without loading Electron |
+| `electron/main/remote-gateway.test.ts` | Fake upstream: generate/status/cancel/runs JSON; `/runs` not cached; `/health` local |
+| `api/tests/test_generate_dispatch.py` | Modal spawn never falls back to `_run_generation`; FunctionCall id recorded |
+| `api/tests/test_overlay_windows_contract.py` | `/runs` snapshot keys (`chain`, `bill`, `leak`); catalog envelope skips incomplete |
+
+```bash
+npm test          # python unittest + node:test
+npm run test:py
+npm run test:node
+```
+
+Do **not** add `if TEST:` branches in `modal/app.py`. If a new Windows
+operation should reach Modal, add a row to the overlay contract test.
+
 ## Local-only features (never send to Modal)
 
 - Agent (Ollama + local filesystem)

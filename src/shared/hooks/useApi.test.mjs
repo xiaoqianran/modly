@@ -65,6 +65,7 @@ test('exposes every method consumed by the app (regression: getAllModelsStatus)'
   for (const name of [
     'generateFromImage', 'pollJobStatus', 'cancelJob', 'getModelStatus',
     'getAllModelsStatus', 'downloadModel', 'optimizeMesh', 'smoothMesh', 'importMesh',
+    'transformMesh',
   ]) {
     assert.equal(typeof api[name], 'function', `useApi() must expose ${name}`)
   }
@@ -112,6 +113,17 @@ test('cancelJob posts to the cancel endpoint and swallows errors', async () => {
   const api = loadUseApi()()
   await api.cancelJob('job9')
   assert.equal(globalThis.__calls[0].url, 'http://test.local/generate/cancel/job9')
+})
+
+test('transformMesh posts the 4x4 matrix to /optimize/transform', async () => {
+  reset()
+  globalThis.__responses['http://test.local/optimize/transform'] = { url: '/t.glb' }
+  const api = loadUseApi()()
+  const matrix = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
+  const result = await api.transformMesh('Default/a.glb', matrix)
+  assert.equal(globalThis.__calls[0].url, 'http://test.local/optimize/transform')
+  assert.deepEqual(globalThis.__calls[0].body, { path: 'Default/a.glb', matrix })
+  assert.deepEqual(result, { url: '/t.glb' })
 })
 
 test('generateFromImage posts multipart and maps job_id → jobId', async () => {
