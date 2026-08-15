@@ -1,6 +1,7 @@
 // Type declarations for the Electron API exposed via preload
 export {}
 
+import type { AppSettings, AppSettingsPatch } from './appSettings'
 import type {
   AssetLibraryListResult,
   AssetLibraryOpenRequest,
@@ -185,35 +186,8 @@ declare global {
         readScreenshotDataUrl: (filename: string) => Promise<string>
       }
       settings: {
-        get: () => Promise<{
-          modelsDir: string
-          workspaceDir: string
-          workflowsDir: string
-          extensionsDir: string
-          hfToken?: string
-          backendMode?: 'local' | 'remote'
-          remoteApiUrl?: string
-          remoteApiToken?: string
-        }>
-        set: (patch: {
-          modelsDir?: string
-          workspaceDir?: string
-          workflowsDir?: string
-          extensionsDir?: string
-          hfToken?: string
-          backendMode?: 'local' | 'remote'
-          remoteApiUrl?: string
-          remoteApiToken?: string
-        }) => Promise<{
-          modelsDir: string
-          workspaceDir: string
-          workflowsDir: string
-          extensionsDir: string
-          hfToken?: string
-          backendMode?: 'local' | 'remote'
-          remoteApiUrl?: string
-          remoteApiToken?: string
-        }>
+        get: () => Promise<AppSettings>
+        set: (patch: AppSettingsPatch) => Promise<AppSettings>
       }
       cache: {
         clear: () => Promise<{ success: boolean; error?: string }>

@@ -15,9 +15,9 @@ from typing import Mapping
 DEFAULT_GPU = ("L40S",)
 DEFAULT_CPU_SCALEDOWN = 8
 # Desktop use: look at the mesh, tweak, Generate again. 5s (ComfyUI copy)
-# makes every retry a Hunyuan reload. 90s catches that loop (~$0.05 L40S)
-# and still goes to zero when the user walks away. Cancel/timeout drop faster.
-DEFAULT_GPU_SCALEDOWN = 90
+# makes every retry a Hunyuan reload. 60s is the default retry window
+# (~$0.03 L40S). Settings can override at runtime. Cancel/timeout drop faster.
+DEFAULT_GPU_SCALEDOWN = 60
 DEFAULT_GPU_DROP_WINDOW = 2
 # Hung generate used to sit on L40S for 3600s. 20 min is enough for Hunyuan.
 DEFAULT_GPU_TIMEOUT = 20 * 60

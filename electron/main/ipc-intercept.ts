@@ -11,7 +11,7 @@ import { app } from 'electron'
 import { dispatchRemoteIpc, type IpcListener } from './ipc-dispatch'
 import { resolveRemoteBackend } from './remote-backend'
 import { getSettings } from './settings-store'
-import { forwardUnknown, mergeRemoteExtensionCatalog, remoteReplaceIpc } from './remote-ipc'
+import { afterSettingsSet, forwardUnknown, mergeRemoteExtensionCatalog, remoteReplaceIpc } from './remote-ipc'
 
 function remoteEnabled(): boolean {
   try {
@@ -32,6 +32,7 @@ export function installIpcIntercept(): void {
         replace: remoteReplaceIpc,
         mergeCatalog: mergeRemoteExtensionCatalog,
         forward: forwardUnknown,
+        afterSettingsSet,
       })
     })
   }) as typeof ipcMain.handle

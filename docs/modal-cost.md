@@ -13,7 +13,7 @@
 | `modal serve modal/app.py` 开着不关 | 容器不缩容，CPU 一直计费；也没有持久 memory snapshot | **不要。** 只在改 `modal/app.py` 时用，Ctrl-C 立刻停 |
 | 桌面一直开着、空闲不点 Generate | 本机网关自己回 `/health`，**不唤醒** Modal | 打开 App ≠ 烧云端 |
 | 点 Generate / 下模型 / 装插件 | CPU ASGI 醒几秒，GPU 只在 `GpuGenerator.generate` 期间醒 | 这才是该付钱的窗口 |
-| 生成成功 | GPU **再留 90 秒**（看结果、改参数再点一次不必重新 load）；然后缩到 0 | 默认 |
+| 生成成功 | GPU **再留 60 秒**（看结果、改参数再点一次不必重新 load）；然后缩到 0。Settings 可改 | 默认 |
 | 取消 / 卡住超时 | 立刻停 FunctionCall，GPU **2 秒**内卸掉 | 用户说停就停 |
 
 `deploy` 留下的是一份**说明书**（函数名、URL、Volume 名），不是一台 24h 开机的机器。ComfyUI 仓库里同一句话：冒烟用 `modal deploy`，不要用 `modal serve` 保活。
@@ -83,12 +83,12 @@ modal run modal/app.py::bake_official_extensions   # CPU clone + CPU 下权重 +
 | 容器 | 空闲策略 | min / buffer |
 |------|----------|----------------|
 | CPU ASGI | **8s**（`MODLY_CPU_SCALEDOWN`） | 0 / 0 |
-| GPU 推理（`GpuGenerator`） | 成功后 **90s 留着模型和显存**（`MODLY_GPU_SCALEDOWN`）；取消/超时 **2s 卸掉** | 0 / 0 |
+| GPU 推理（`GpuGenerator`） | 成功后 **60s 留着模型和显存**（Settings 或 `MODLY_GPU_SCALEDOWN`）；取消/超时 **2s 卸掉** | 0 / 0 |
 | GPU `setup.py` 烘焙 | 跑完即毁（`single_use_containers`） | 0 / 0 |
 
 打开 App、看 GLB、smooth/remesh **不会**保活 GPU。Viewer 吃本机缓存的文件。只有 Generate / 取消超时动 GPU 层。
 
-L40S 90 秒大约 **$0.05**。同一次会话里连点 3 次 Generate，只付一次 load。走开喝杯水，GPU 回到 0。
+L40S 60 秒大约 **$0.03**。同一次会话里连点 3 次 Generate，只付一次 load。走开喝杯水，GPU 回到 0。桌面 Settings → Compute backend 可以改停留秒数；换卡要下一次 `modal deploy`。
 
 ### 3. 默认卡：L40S only
 
@@ -134,7 +134,7 @@ GPU snapshot 默认关（`MODLY_GPU_SNAPSHOT=1` 才开）：我们不在 `enter(
 |--|------------------|-------------------------|
 | 控制面 | 本机 Studio :8787，但 GPU 仍是网页 | 本机 Electron :8765，**网页永不在 GPU** |
 | 打开 UI | 若连 GPU web，L40S 不缩 | `/health` 本地，云端继续 0 |
-| 空闲 GPU | 5s，但 WS 会钉住 | **90s 重试窗口**（无 WS）；取消则 2s 卸 |
+| 空闲 GPU | 5s，但 WS 会钉住 | **60s 重试窗口**（无 WS，Settings 可改）；取消则 2s 卸 |
 | 下模型 | CPU hydrate | CPU hydrate（扩展源码也 CPU） |
 | 默认 GPU | L40S | L40S（禁止静默 A100） |
 | 快照 | memory + GPU（Comfy 进程整包） | memory（registry）；GPU 快照可选 |
@@ -166,10 +166,14 @@ modal serve modal/app.py   # 用完 Ctrl-C
 |------|------|------|
 | `MODLY_GPU` | `L40S` | 逗号分隔；空 = 只有 L40S |
 | `MODLY_CPU_SCALEDOWN` | `8` | CPU ASGI 空闲秒 |
-| `MODLY_GPU_SCALEDOWN` | `90` | 生成**成功**后 GPU 再留多少秒给下一次 Generate（取消/超时是 2s） |
+| `MODLY_GPU_SCALEDOWN` | `60` | 生成**成功**后 GPU 再留多少秒给下一次 Generate（Settings 可覆盖；取消/超时是 2s） |
 | `MODLY_MEMORY_SNAPSHOT` | `1` | deploy 后给 GpuGenerator 拍内存快照 |
 | `MODLY_GPU_SNAPSHOT` | `0` | 实验性 GPU 快照；没在 enter() 里 load 模型就别开 |
 | `MODLY_GPU_TIMEOUT` | `1200` | GPU `generate` 函数超时（秒）。卡住就杀，不再空转 1 小时 |
+
+桌面 Settings → Application → Compute backend（Modal）可以改停留秒数和想用的卡。停留秒数走 `POST /settings/modal`，下次 Generate 就按新窗口留 GPU。换卡只记在本机 `settings.json`，要 `MODLY_GPU=… modal deploy modal/app.py` 才换上。这两项都不在 Generate 页。
+
+改 linger / 选卡 **不必每次打 Windows exe**。配置在 `userData/settings.json`，`npm run dev` 和已装的 exe 读同一份。只有 Settings 界面本身是新代码时，才需要打一版带这个 UI 的安装包。默认 60s 在 `modal deploy` 之后就会生效，旧 exe 没有这项 Settings 也能用。
 
 冷启动（第一次 Generate 当天）仍可能要几十秒：snapshot restore + 扩展 venv + 把权重 load 进显存。这是**付一次**，不是包月。觉得冷启动不可接受再考虑 `min_containers=1`——那才是“一直 deploy 着一台机器”。
 

@@ -12,5 +12,10 @@
       "@main/*": ["./electron/main/*"]
     }
   },
-  "include": ["electron.vite.config.*", "electron/**/*"]
+  "include": [
+    "electron.vite.config.*",
+    "electron/**/*",
+    "src/shared/modalPrefs.ts",
+    "src/shared/types/appSettings.ts"
+  ]
 }

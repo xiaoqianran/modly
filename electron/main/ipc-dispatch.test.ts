@@ -83,6 +83,32 @@ test('extensions:list wrap keeps process builtins and appends the Modal catalog'
   assert.deepEqual(log, ['merge-catalog'])
 })
 
+test('settings:set wrap runs the laptop handler then the overlay prefs hook', async () => {
+  const { dispatchRemoteIpc } = await load()
+  const log: string[] = []
+  const adaptersWithHook = {
+    ...adapters(log),
+    afterSettingsSet: async (patch: unknown, updated: unknown) => {
+      log.push(`prefs:${JSON.stringify(patch)}:${JSON.stringify(updated)}`)
+    },
+  }
+  const result = await dispatchRemoteIpc(
+    'settings:set',
+    {},
+    [{ gpuLingerSeconds: 45, remoteGpu: 'A100' }],
+    async (_event, patch) => {
+      log.push('listener')
+      return { ...(patch as object), saved: true }
+    },
+    adaptersWithHook,
+  )
+  assert.deepEqual(result, { gpuLingerSeconds: 45, remoteGpu: 'A100', saved: true })
+  assert.deepEqual(log, [
+    'listener',
+    'prefs:{"gpuLingerSeconds":45,"remoteGpu":"A100"}:{"gpuLingerSeconds":45,"remoteGpu":"A100","saved":true}',
+  ])
+})
+
 test('unknown model/extensions channel falls back to the laptop handler when Modal says fallback', async () => {
   const { dispatchRemoteIpc } = await load()
   const log: string[] = []

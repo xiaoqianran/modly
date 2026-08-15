@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
+from services.modal_prefs import reset_modal_prefs_for_tests, set_modal_prefs
 from services.modal_runtime import (
     SpawnResult,
     cancel_function_call,
@@ -52,6 +53,12 @@ class CancelTests(unittest.TestCase):
 
 
 class GpuPoolTests(unittest.TestCase):
+    def setUp(self) -> None:
+        reset_modal_prefs_for_tests()
+
+    def tearDown(self) -> None:
+        reset_modal_prefs_for_tests()
+
     def test_hold_and_release_are_no_ops_off_modal(self) -> None:
         self.assertFalse(hold_gpu_for_retry())
         self.assertFalse(release_gpu_pool())
@@ -70,5 +77,11 @@ class GpuPoolTests(unittest.TestCase):
             inst.update_autoscaler.reset_mock()
             self.assertTrue(hold_gpu_for_retry())
             inst.update_autoscaler.assert_called_with(
-                min_containers=0, buffer_containers=0, scaledown_window=90
+                min_containers=0, buffer_containers=0, scaledown_window=60
+            )
+            inst.update_autoscaler.reset_mock()
+            set_modal_prefs(linger_seconds=45, persist=False)
+            self.assertTrue(hold_gpu_for_retry())
+            inst.update_autoscaler.assert_called_with(
+                min_containers=0, buffer_containers=0, scaledown_window=45
             )

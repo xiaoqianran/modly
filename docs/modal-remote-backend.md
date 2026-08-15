@@ -166,7 +166,7 @@ GitHub tarball → 解压 → 校验 manifest → 原子替换目录 → **在�
 | `modly-workspace` | `/modly/workspace` | 生成的 GLB / splat |
 | `modly-extensions` | `/modly/extensions` | 官方模型插件源码 + venv |
 
-GPU 选择：默认 **只有 L40S**。Modal 把 GPU tuple 当成静默 fallback，所以不要写 `["L40S","L4","A100"]`。贵卡必须 `MODLY_GPU=A100`。CPU ASGI **8s** 缩到 0。GPU 推理成功后 **90s** 留着显存方便连点 Generate，取消/超时 **2s** 卸掉。详见 [`docs/modal-cost.md`](modal-cost.md)。
+GPU 选择：默认 **只有 L40S**。Modal 把 GPU tuple 当成静默 fallback，所以不要写 `["L40S","L4","A100"]`。贵卡必须 `MODLY_GPU=A100`（Settings 里选的卡也是下次 `modal deploy` 才生效）。CPU ASGI **8s** 缩到 0。GPU 推理成功后 **60s** 留着显存方便连点 Generate（Settings 可改，立刻生效），取消/超时 **2s** 卸掉。详见 [`docs/modal-cost.md`](modal-cost.md)。
 
 `api/requirements.txt` 只装 FastAPI / trimesh / huggingface_hub。**Torch 继续待在每个 extension 的 venv 里**，不要打进 ASGI 镜像。
 

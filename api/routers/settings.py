@@ -18,6 +18,12 @@ class TokenUpdate(BaseModel):
     token: str
 
 
+class ModalPrefsUpdate(BaseModel):
+    lingerSeconds: Optional[int] = None
+    linger_seconds: Optional[int] = None
+    gpu: Optional[str] = None
+
+
 @router.get("/paths")
 async def get_paths():
     return {
@@ -51,3 +57,25 @@ async def update_hf_token(body: TokenUpdate):
         os.environ.pop("HUGGING_FACE_HUB_TOKEN", None)
         os.environ.pop("HF_TOKEN", None)
     return {"ok": True}
+
+
+@router.get("/modal")
+async def get_modal_prefs():
+    from services.modal_prefs import public_modal_prefs
+
+    return public_modal_prefs()
+
+
+@router.post("/modal")
+async def update_modal_prefs(body: ModalPrefsUpdate):
+    from services.modal_prefs import set_modal_prefs
+
+    linger = body.linger_seconds if body.linger_seconds is not None else body.lingerSeconds
+    result = set_modal_prefs(linger_seconds=linger, gpu=body.gpu)
+    try:
+        from services.modal_runtime import hold_gpu_for_retry
+
+        hold_gpu_for_retry()
+    except Exception:
+        pass
+    return result

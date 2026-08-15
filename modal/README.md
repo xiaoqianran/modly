@@ -43,7 +43,7 @@ desktop does **not** use it for readiness.
 | | default | override |
 |--|---------|----------|
 | GPU | L40S only | `MODLY_GPU=A100` (never a silent A100 fallback) |
-| GPU scaledown | 90s after success (2s after cancel), min=0 | `MODLY_GPU_SCALEDOWN` |
+| GPU scaledown | 60s after success (2s after cancel), min=0 | Settings or `MODLY_GPU_SCALEDOWN` |
 | CPU ASGI scaledown | 8s, min=0, buffer=0 | `MODLY_CPU_SCALEDOWN` |
 | Memory snapshot | on (after deploy) | `MODLY_MEMORY_SNAPSHOT=0` |
 | GPU snapshot | off | `MODLY_GPU_SNAPSHOT=1` |

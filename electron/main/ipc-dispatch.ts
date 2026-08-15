@@ -13,6 +13,7 @@ export interface RemoteIpcAdapters {
   replace: (channel: string, args: unknown[]) => Promise<unknown>
   mergeCatalog: (listed: unknown) => Promise<unknown>
   forward: (channel: string, args: unknown[]) => Promise<unknown>
+  afterSettingsSet?: (patch: unknown, updated: unknown) => Promise<void>
 }
 
 export async function dispatchRemoteIpc(
@@ -36,6 +37,13 @@ export async function dispatchRemoteIpc(
     case 'wrap-extensions-list': {
       const listed = await listener(event, ...args)
       return adapters.mergeCatalog(listed)
+    }
+    case 'wrap-settings-set': {
+      const updated = await listener(event, ...args)
+      if (adapters.afterSettingsSet) {
+        await adapters.afterSettingsSet(args[0], updated)
+      }
+      return updated
     }
     case 'forward-unknown':
       try {

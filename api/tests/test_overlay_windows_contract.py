@@ -93,6 +93,25 @@ class OverlayHttpShapeTests(unittest.TestCase):
         self.assertNotIn("gpu.worker", body["chain"])
         self.assertEqual(body["bill"]["gpu_seconds"], 0.0)
 
+    def test_modal_prefs_shape(self) -> None:
+        from services.modal_prefs import public_modal_prefs, reset_modal_prefs_for_tests
+
+        reset_modal_prefs_for_tests()
+        body = public_modal_prefs({})
+        for key in (
+            "lingerSeconds",
+            "gpu",
+            "deployedGpu",
+            "allowedGpus",
+            "lingerAppliesImmediately",
+            "gpuAppliesOnDeploy",
+        ):
+            self.assertIn(key, body)
+        self.assertEqual(body["lingerSeconds"], 60)
+        self.assertEqual(body["gpu"], "L40S")
+        self.assertTrue(body["lingerAppliesImmediately"])
+        self.assertTrue(body["gpuAppliesOnDeploy"])
+
     def test_unknown_model_http_error_shape(self) -> None:
         body = {"detail": "Unknown model ID: 'nope'. Available: ['hunyuan-mini/mini']"}
         self.assertIsInstance(body["detail"], str)

@@ -1,3 +1,4 @@
+import type { AppSettings, AppSettingsPatch } from '../../src/shared/types/appSettings'
 import type {
   AssetLibraryListResult,
   AssetLibraryOpenRequest,
@@ -89,55 +90,10 @@ export function createElectronApi(ipcRenderer: IpcRendererLike, webFrame: WebFra
 
     // Settings
     settings: {
-      get: (): Promise<{
-        modelsDir: string
-        workspaceDir: string
-        workflowsDir: string
-        extensionsDir: string
-        hfToken?: string
-        backendMode?: 'local' | 'remote'
-        remoteApiUrl?: string
-        remoteApiToken?: string
-      }> =>
-        ipcRenderer.invoke('settings:get') as Promise<{
-          modelsDir: string
-          workspaceDir: string
-          workflowsDir: string
-          extensionsDir: string
-          hfToken?: string
-          backendMode?: 'local' | 'remote'
-          remoteApiUrl?: string
-          remoteApiToken?: string
-        }>,
-      set: (patch: {
-        modelsDir?: string
-        workspaceDir?: string
-        workflowsDir?: string
-        extensionsDir?: string
-        hfToken?: string
-        backendMode?: 'local' | 'remote'
-        remoteApiUrl?: string
-        remoteApiToken?: string
-      }): Promise<{
-        modelsDir: string
-        workspaceDir: string
-        workflowsDir: string
-        extensionsDir: string
-        hfToken?: string
-        backendMode?: 'local' | 'remote'
-        remoteApiUrl?: string
-        remoteApiToken?: string
-      }> =>
-        ipcRenderer.invoke('settings:set', patch) as Promise<{
-          modelsDir: string
-          workspaceDir: string
-          workflowsDir: string
-          extensionsDir: string
-          hfToken?: string
-          backendMode?: 'local' | 'remote'
-          remoteApiUrl?: string
-          remoteApiToken?: string
-        }>,
+      get: (): Promise<AppSettings> =>
+        ipcRenderer.invoke('settings:get') as Promise<AppSettings>,
+      set: (patch: AppSettingsPatch): Promise<AppSettings> =>
+        ipcRenderer.invoke('settings:set', patch) as Promise<AppSettings>,
     },
 
     // Cache

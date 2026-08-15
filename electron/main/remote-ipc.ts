@@ -6,6 +6,7 @@
  */
 
 import axios from 'axios'
+import { modalPrefsBody } from '../../src/shared/modalPrefs'
 import { API_BASE_URL } from './python-bridge'
 import { DESKTOP_IPC_FALLBACK } from './ipc-dispatch'
 import {
@@ -36,6 +37,19 @@ export async function mergeRemoteExtensionCatalog(localListed: unknown): Promise
   } catch (err) {
     console.error('[remote-ipc] catalog failed', err)
     return mergeCatalogLists(localListed, { extensions: [] })
+  }
+}
+
+export async function afterSettingsSet(patch: unknown, updated: unknown): Promise<void> {
+  const body = patch as { gpuLingerSeconds?: number; remoteGpu?: string } | null
+  if (!body || (body.gpuLingerSeconds === undefined && body.remoteGpu === undefined)) {
+    return
+  }
+  const settings = (updated ?? body) as { gpuLingerSeconds?: number; remoteGpu?: string }
+  try {
+    await axios.post(`${API_BASE_URL}/settings/modal`, modalPrefsBody(settings), { timeout: 5000 })
+  } catch {
+    /* FastAPI / Modal may not be running yet */
   }
 }
 
