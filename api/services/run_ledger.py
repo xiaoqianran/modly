@@ -195,7 +195,6 @@ class RunRecord:
             self.status not in TERMINAL
             and self.spawn_call_id
             and opened is None
-            and self.created_at
             and (now - self.created_at) > gpu_timeout
         ):
             return {

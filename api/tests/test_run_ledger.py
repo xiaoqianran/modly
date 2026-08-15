@@ -15,7 +15,6 @@ from services.run_tracker import (
     snapshot,
     touch_poll,
 )
-from schemas.generation import JobStatus
 
 
 class RunRecordTests(unittest.TestCase):
@@ -209,10 +208,17 @@ class RunTrackerTests(unittest.TestCase):
     def test_status_watch_updates_job_store(self) -> None:
         from services.job_store import get_job_store
 
+        class _Job:
+            def __init__(self) -> None:
+                self.job_id = "watch"
+                self.status = "running"
+                self.progress = 1
+                self.error = None
+
         open_run("watch", "m", "generate")
         note_spawn("watch", "fc-w")
         gpu_enter("watch")
-        get_job_store().put(JobStatus(job_id="watch", status="running", progress=1))
+        get_job_store().put(_Job())
         rec = get_run_store().get("watch")
         assert rec is not None
         for span in rec.spans:
