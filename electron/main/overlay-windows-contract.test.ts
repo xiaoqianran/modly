@@ -203,6 +203,45 @@ test('Python and desktop linger defaults stay 60', () => {
   assert.match(readRepo('api/services/modal_prefs.py'), /DEFAULT_LINGER_SECONDS = DEFAULT_GPU_SCALEDOWN/)
 })
 
+test('shared Electron files stay Modal-free; overlay is one hook each', () => {
+  const handlers = readRepo('electron/main/ipc-handlers.ts')
+  const settingsStore = readRepo('electron/main/settings-store.ts')
+  const index = readRepo('electron/main/index.ts')
+  const install = readRepo('electron/main/overlay-install.ts')
+  const bridge = readRepo('electron/main/python-bridge.ts')
+  const remote = readRepo('electron/main/remote-bridge.ts')
+
+  assert.equal(handlers.includes('backendMode'), false)
+  assert.equal(handlers.includes('remoteApiUrl'), false)
+  assert.equal(handlers.includes('gpuLinger'), false)
+  assert.equal(handlers.includes('modal:session'), false)
+  assert.equal(handlers.includes('installIpcIntercept'), false)
+
+  assert.equal(settingsStore.includes('backendMode'), false)
+  assert.equal(settingsStore.includes('remoteApiUrl'), false)
+  assert.equal(settingsStore.includes('gpuLinger'), false)
+  assert.equal(settingsStore.includes('token-id'), false)
+  assert.match(settingsStore, /\.\.\.defaults,\s*\.\.\.saved/)
+  assert.match(settingsStore, /\.\.\.getSettings\(userData\),\s*\.\.\.patch/)
+
+  assert.match(index, /installOverlay/)
+  assert.equal(index.includes('setupIpcHandlers'), false)
+  assert.equal(index.includes('installIpcIntercept'), false)
+  assert.equal(index.includes('setupModalSessionIpc'), false)
+
+  const interceptAt = install.indexOf('installIpcIntercept()')
+  const handlersAt = install.indexOf('setupIpcHandlers(')
+  const sessionAt = install.indexOf('setupModalSessionIpc(')
+  assert.ok(interceptAt >= 0 && interceptAt < handlersAt && handlersAt < sessionAt)
+
+  assert.match(bridge, /tryStartRemoteGateway/)
+  assert.match(bridge, /tryStopRemoteGateway/)
+  assert.equal(bridge.includes("from './remote-gateway'"), false)
+  assert.equal(bridge.includes("from './remote-backend'"), false)
+  assert.match(remote, /startRemoteGateway/)
+  assert.match(remote, /overlayRemoteSettings/)
+})
+
 test('Modal CLI tokens stay in a laptop session IPC, never settings.json or Generate', () => {
   const sessionIpc = readRepo('electron/main/modal-session-ipc.ts')
   const session = readRepo('electron/main/modal-session.ts')

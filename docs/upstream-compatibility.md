@@ -76,8 +76,8 @@ When `backendMode` is `remote` (or `MODLY_REMOTE_API_URL` is set), Electron star
 2. **Translates** the few host-path operations (`/optimize/import-by-path`, `/workspace/...` prefetch for process nodes).
 3. **Intercepts IPC at `ipcMain.handle`** (`electron/main/ipc-intercept.ts`).
    Classification is by prefix (`electron/main/ipc-policy.ts`), not by
-   editing `ipc-handlers.ts`. Upstream can change that 1600-line file
-   without a Modal conflict.
+   editing `ipc-handlers.ts`. That file is byte-identical to upstream
+   `main`. One hook in `index.ts` (`installOverlay`) wraps it.
 
 ## What you do **not** change when lightningpixel/modly adds a feature
 
@@ -90,6 +90,18 @@ When `backendMode` is `remote` (or `MODLY_REMOTE_API_URL` is set), Electron star
 | New host-absolute path POST | Add one translator in `remote-gateway.ts` |
 
 Do **not** rewrite `appStore`, `useApi`, Generate, Viewer, or Workflow to know about Modal.
+
+Shared files that still differ from upstream `main` are one-hook only:
+
+| File | Hook |
+|---|---|
+| `electron/main/index.ts` | `installOverlay(...)` instead of `setupIpcHandlers` |
+| `electron/main/python-bridge.ts` | `tryStartRemoteGateway` / `tryStopRemoteGateway` |
+| `api/main.py` | `mount_overlay(app)` |
+| `api/routers/generation.py` / `workflow_runs.py` | `from services.generation_overlay import …` + `dispatch_from_image` early return |
+| `api/routers/model.py` | `after_hf_download()` after a finished HF pull |
+
+`ipc-handlers.ts`, `settings-store.ts`, `settings.py`, `extensions.py`, and `optimize.py` match the fork point. Extra settings JSON keys still survive `{...saved}` / `{...patch}`.
 
 This is how a merge from `lightningpixel/modly` stays cheap: HTTP features
 are free; only new “scan this laptop folder” IPC or host-absolute path POSTs

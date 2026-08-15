@@ -11,7 +11,6 @@ from urllib.request import Request, urlopen
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from services.generator_registry import generator_registry, MODELS_DIR
-import shutil
 
 router = APIRouter(tags=["model"])
 
@@ -96,23 +95,6 @@ async def unload_all_models():
     except Exception:
         pass
     return {"unloaded": True}
-
-
-@router.post("/delete/{model_id:path}")
-async def delete_model_files(model_id: str):
-    """Delete downloaded weights for a model id (used by the remote gateway)."""
-    dest = (MODELS_DIR / model_id).resolve()
-    root = MODELS_DIR.resolve()
-    if dest != root and root not in dest.parents:
-        raise HTTPException(400, "Invalid model id")
-    try:
-        gen = generator_registry.get_generator(model_id)
-        gen.unload()
-    except Exception:
-        pass
-    if dest.exists() and dest.is_dir():
-        shutil.rmtree(dest)
-    return {"deleted": True}
 
 
 @router.post("/unload/{model_id}")
@@ -277,8 +259,8 @@ async def hf_download(
                 })
 
             yield _fmt({"percent": 100, "status": "done"})
-            from services.modal_runtime import commit_volume
-            commit_volume("modly-models")
+            from services.overlay_hooks import after_hf_download
+            after_hf_download()
 
         except DownloadPaused:
             yield _fmt({"paused": True, "status": "paused"})
