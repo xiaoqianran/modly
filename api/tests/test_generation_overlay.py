@@ -42,6 +42,9 @@ class DispatchFromImageTests(unittest.TestCase):
         body = snapshot("j1")
         self.assertEqual(body["spawn_call_id"], "fc-live")
         self.assertIn("gpu.worker", body["chain"])
+        self.assertEqual(body["phase"]["id"], "starting_gpu")
+        job = get_job("j1")
+        self.assertEqual(job.step, "Starting GPU worker…")
 
     @patch.dict(os.environ, {"MODLY_RUNTIME": "modal"}, clear=False)
     def test_spawn_error_claims_the_handler_and_does_not_start_a_thread(self) -> None:

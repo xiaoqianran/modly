@@ -207,6 +207,51 @@ class RunRecord:
             }
         return None
 
+    def latest_gpu_step(self) -> str:
+        for span in reversed(self.spans):
+            if span.name == "gpu.step" and span.detail:
+                return span.detail
+        for span in reversed(self.spans):
+            if span.name == "gpu.generate" and span.detail:
+                return span.detail
+        return ""
+
+    def gpu_worker_entered(self) -> bool:
+        return any(s.name == "gpu.generate" for s in self.spans)
+
+    def phase(self) -> dict[str, str]:
+        """Human hop for Settings / curl. Computed on read — not persisted."""
+        if self.status == "error":
+            return {"id": "error", "label": "Error"}
+        if self.status == "cancelled":
+            return {"id": "cancelled", "label": "Cancelled"}
+        if self.status == "done":
+            return {"id": "done", "label": "Done"}
+
+        latest = self.latest_gpu_step()
+        low = latest.lower()
+        # "downloading" contains "load" — check download first.
+        if "download" in low:
+            return {"id": "downloading_weights", "label": "Downloading model weights"}
+        if "commit" in low or "saving output" in low:
+            return {"id": "committing", "label": "Saving output"}
+        if "generat" in low or "mesh" in low:
+            return {"id": "generating", "label": "Generating 3D mesh"}
+        if "load" in low:
+            return {"id": "loading_model", "label": "Loading model"}
+
+        if not self.gpu_worker_entered():
+            if self.spawn_call_id:
+                return {
+                    "id": "starting_gpu",
+                    "label": "Starting GPU worker (cold start or image pull)",
+                }
+            return {"id": "accepted", "label": "Accepted on CPU — spawning GPU"}
+
+        if latest:
+            return {"id": "running", "label": latest}
+        return {"id": "running", "label": "GPU running"}
+
     def payload(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
@@ -233,6 +278,7 @@ class RunRecord:
         gpu_timeout: float,
     ) -> dict[str, Any]:
         body = self.payload()
+        body["phase"] = self.phase()
         body["bill"] = self.bill(
             now=now,
             cpu_scaledown=cpu_scaledown,
