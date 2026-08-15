@@ -25,8 +25,14 @@ def parse_github_repo(url: str) -> tuple[str, str]:
 
 
 def download_github_tarball(owner: str, repo: str) -> bytes:
+    import os
+
     url = f"https://api.github.com/repos/{owner}/{repo}/tarball/HEAD"
-    req = Request(url, headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "modly"})
+    headers = {"Accept": "application/vnd.github.v3+json", "User-Agent": "modly"}
+    token = (os.environ.get("GITHUB_TOKEN") or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = Request(url, headers=headers)
     with urlopen(req, timeout=120) as resp:
         return resp.read()
 

@@ -36,12 +36,25 @@ WORKSPACE_DIR = Path("/modly/workspace")
 EXTENSIONS_DIR = Path("/modly/extensions")
 
 # Repo-relative: `modal serve modal/app.py` is launched from the repository root.
+# Inside the container Modal copies this file to /root/app.py, so parent.parent/api
+# would be /api — the FastAPI tree is mounted at API_ROOT instead.
 REPO_API = Path(__file__).resolve().parent.parent / "api"
 
-sys.path.insert(0, str(REPO_API))
+
+def _api_on_path() -> None:
+    for candidate in (API_ROOT, REPO_API):
+        if candidate.is_dir():
+            sys.path.insert(0, str(candidate))
+            return
+    sys.path.insert(0, str(REPO_API))
+
+
+_api_on_path()
 from services.modal_idle import ModalIdleSettings, idle_release_kwargs  # noqa: E402
 
 IDLE = ModalIdleSettings.from_env()
+# `modal secret create modly-tokens HF_TOKEN=... GITHUB_TOKEN=...`
+TOKENS = modal.Secret.from_name("modly-tokens")
 
 models_vol = modal.Volume.from_name("modly-models", create_if_missing=True)
 workspace_vol = modal.Volume.from_name("modly-workspace", create_if_missing=True)
@@ -76,6 +89,12 @@ app = modal.App(APP_NAME, image=image)
 def _load_fastapi():
     import sys as _sys
 
+    try:
+        models_vol.reload()
+        workspace_vol.reload()
+        extensions_vol.reload()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[modal] volume reload failed: {exc}")
     _sys.path.insert(0, str(API_ROOT))
     from main import app as fastapi_app  # type: ignore  # noqa: PLC0415
 
@@ -103,6 +122,7 @@ OFFICIAL_REPOS = (
 
 @app.function(
     volumes=VOLUMES,
+    secrets=[TOKENS],
     timeout=60 * 60,
     **IDLE.cpu_function_kwargs(),
 )
@@ -115,6 +135,7 @@ def fastapi_app():
 
 @app.function(
     volumes=VOLUMES,
+    secrets=[TOKENS],
     timeout=60 * 60,
     cpu=4.0,
     memory=8192,
@@ -130,6 +151,7 @@ def hydrate_official_extensions():
 
 @app.function(
     volumes=VOLUMES,
+    secrets=[TOKENS],
     timeout=6 * 60 * 60,
     cpu=8.0,
     memory=16384,
@@ -163,6 +185,7 @@ def hydrate_official_models():
 @app.function(
     gpu=list(IDLE.gpu),
     volumes=VOLUMES,
+    secrets=[TOKENS],
     timeout=60 * 60,
     **idle_release_kwargs(IDLE.gpu_scaledown_window),
 )
@@ -199,6 +222,7 @@ def bake_official_extensions():
 
 @app.function(
     volumes=VOLUMES,
+    secrets=[TOKENS],
     timeout=60,
     **IDLE.cpu_function_kwargs(),
 )
@@ -212,6 +236,7 @@ def dump_recent_runs(limit: int = 20):
 
 @app.cls(
     volumes=VOLUMES,
+    secrets=[TOKENS],
     timeout=IDLE.gpu_timeout_seconds,
     **IDLE.gpu_cls_kwargs(),
 )
@@ -245,6 +270,9 @@ class GpuGenerator:
         from services.run_tracker import gpu_enter, gpu_leave, gpu_step
 
         store = get_job_store()
+        if store.is_cancelled(job_id):
+            gpu_leave(job_id, "cancelled")
+            return "cancelled"
         store.update(job_id, status="running", progress=0, step="Loading model")
         gpu_enter(job_id, "Loading model")
         outcome = "error"

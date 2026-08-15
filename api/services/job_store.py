@@ -47,6 +47,9 @@ class MemoryJobStore:
         job = self._jobs.get(job_id)
         if job is None:
             return None
+        incoming = fields.get("status")
+        if getattr(job, "status", None) in ("done", "error", "cancelled") and incoming == "running":
+            return job
         for key, value in fields.items():
             setattr(job, key, value)
         if fields.get("status") in ("done", "error", "cancelled"):
@@ -110,6 +113,9 @@ class ModalJobStore:
         job = self.get(job_id)
         if job is None:
             return None
+        incoming = fields.get("status")
+        if job.status in ("done", "error", "cancelled") and incoming == "running":
+            return job
         for key, value in fields.items():
             setattr(job, key, value)
         self.put(job)
