@@ -50,7 +50,7 @@ def _api_on_path() -> None:
 
 
 _api_on_path()
-from services.modal_idle import ModalIdleSettings, idle_release_kwargs  # noqa: E402
+from services.modal_idle import ModalIdleSettings  # noqa: E402
 
 IDLE = ModalIdleSettings.from_env()
 # `modal secret create modly-tokens HF_TOKEN=... GITHUB_TOKEN=...`
@@ -183,11 +183,10 @@ def hydrate_official_models():
 
 
 @app.function(
-    gpu=list(IDLE.gpu),
     volumes=VOLUMES,
     secrets=[TOKENS],
     timeout=60 * 60,
-    **idle_release_kwargs(IDLE.gpu_scaledown_window),
+    **IDLE.gpu_function_kwargs(),
 )
 def setup_official_extensions():
     """GPU: run each official extension's setup.py (CUDA wheels / SM)."""
@@ -262,6 +261,14 @@ class GpuGenerator:
         """Re-read Volumes so a CPU hydrate is visible after snapshot restore."""
         self._boot(reload_volumes=True)
 
+    @modal.exit()
+    def shutdown(self) -> None:
+        """Drop weights / extension subprocesses as the GPU container dies."""
+        try:
+            self.registry.unload_all()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[modal] GpuGenerator.exit unload failed: {exc}")
+
     @modal.method()
     def generate(self, job_id: str, model_id: str, image_bytes: bytes, params: dict, collection: str = "Default") -> str:
         """Run one image-to-mesh job and persist status in modal.Dict."""
@@ -294,7 +301,11 @@ class GpuGenerator:
 
         try:
             self.registry.switch_model(model_id)
+            if store.is_cancelled(job_id):
+                raise GenerationCancelled()
             gen = self.registry.get_active()
+            if store.is_cancelled(job_id):
+                raise GenerationCancelled()
             coll_dir = WORKSPACE_DIR / collection
             coll_dir.mkdir(parents=True, exist_ok=True)
             gen.outputs_dir = coll_dir
@@ -320,6 +331,13 @@ class GpuGenerator:
             raise
         finally:
             gpu_leave(job_id, outcome, err)
+            # Success: keep weights in VRAM for a retry during the linger window.
+            # Cancel: drop them so the soon-to-die container is not holding Hunyuan.
+            if outcome == "cancelled":
+                try:
+                    self.registry.unload_all()
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[modal] generate unload_all failed: {exc}")
 
     @modal.method()
     def setup_extension(self, ext_id: str) -> str:

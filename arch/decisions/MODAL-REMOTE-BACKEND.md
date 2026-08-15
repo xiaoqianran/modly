@@ -246,10 +246,12 @@ Two functions:
    The desktop gateway answers `/health` locally so opening the app does not
    keep this container warm.
 2. **GPU Cls** — default `gpu=["L40S"]` only (set `MODLY_GPU` for anything
-   else; never a silent A100 fallback), `scaledown_window` **5s**,
-   `min_containers=0`, memory snapshot after `modal deploy`. `@modal.enter`
-   initializes the registry; `generate()` loads weights. Do not add
-   `min_containers=1` unless you are choosing to pay for a warm GPU.
+   else; never a silent A100 fallback). After a **successful** generate, linger
+   **90s** with weights still loaded so the next click does not reload Hunyuan.
+   Cancel / timeout drop the pool in **2s**. `min_containers=0`, memory snapshot
+   after `modal deploy`. `@modal.enter` initializes the registry; `generate()`
+   loads weights. Do not add `min_containers=1` unless you are choosing to pay
+   for a warm GPU.
 
 Bake official extensions with CPU hydrate (`hydrate_official_extensions` +
 `hydrate_official_models`) and run `setup.py` on GPU only. Extension

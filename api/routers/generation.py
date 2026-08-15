@@ -9,7 +9,13 @@ from services.generators.base import smooth_progress, GenerationCancelled
 import re as _re
 from services.generator_registry import generator_registry, WORKSPACE_DIR
 from services.job_store import get_job_store
-from services.modal_runtime import commit_volume, is_modal_runtime, spawn_gpu_generation, stop_run_compute
+from services.modal_runtime import (
+    commit_volume,
+    is_modal_runtime,
+    release_gpu_pool,
+    spawn_gpu_generation,
+    stop_run_compute,
+)
 from services.run_tracker import (
     apply_status_watch,
     finish_run,
@@ -115,6 +121,7 @@ async def cancel_job(job_id: str):
         raise HTTPException(404, f"Job {job_id} not found")
     store.mark_cancel(job_id)
     stop_run_compute(job_id)
+    release_gpu_pool()
     mark_cancel(job_id, "client cancel")
     # Kill the active generator subprocess immediately so inference stops now.
     # _run_generation will catch the resulting exception, see job_id in _cancelled,
