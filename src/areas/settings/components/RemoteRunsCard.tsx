@@ -76,7 +76,7 @@ export function RemoteRunsCard(): JSX.Element {
   return (
     <Card
       title="Remote runs"
-      description="Live ledger from GET /runs — whether the last Generate is starting the GPU, pulling weights, generating, or already failed. Generate / useApi are unchanged."
+      description="Live ledger from GET /runs — whether the last Generate is starting the GPU, pulling weights, generating, or already failed."
     >
       <div className="px-4 py-3 space-y-3">
         <div className="flex items-center justify-between gap-2">
