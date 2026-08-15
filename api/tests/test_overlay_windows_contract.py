@@ -10,7 +10,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from services.extension_catalog import list_model_extension_manifests
+from services.extension_catalog import list_extension_catalog, list_model_extension_manifests
 from services.generate_dispatch import JOB_STATUSES, job_status_is_sound
 from services.job_store import reset_job_store_for_tests
 from services.run_store import reset_run_store_for_tests
@@ -143,3 +143,13 @@ class CatalogSkipIncompleteTests(unittest.TestCase):
             }), encoding="utf-8")
             payload = {"extensions": list_model_extension_manifests(root)}
             self.assertEqual([row["id"] for row in payload["extensions"]], ["hunyuan"])
+
+    def test_catalog_endpoint_shape_includes_official_stubs(self) -> None:
+        from unittest.mock import patch
+
+        with patch("services.modal_runtime.spawn_hydrate_official_extensions"):
+            payload = {"extensions": list_extension_catalog(None)}
+        ids = [row["id"] for row in payload["extensions"]]
+        self.assertEqual(ids, ["hunyuan3d-mini", "triposg", "trellis-2"])
+        hunyuan = payload["extensions"][0]
+        self.assertEqual(hunyuan["nodes"][0]["id"], "generate")
