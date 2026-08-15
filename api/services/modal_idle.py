@@ -14,7 +14,11 @@ from typing import Mapping
 # Default is L40S only. A100 / H100 / RTX-PRO-6000 must be explicit.
 DEFAULT_GPU = ("L40S",)
 DEFAULT_CPU_SCALEDOWN = 8
-DEFAULT_GPU_SCALEDOWN = 5
+# Desktop use: look at the mesh, tweak, Generate again. 5s (ComfyUI copy)
+# makes every retry a Hunyuan reload. 90s catches that loop (~$0.05 L40S)
+# and still goes to zero when the user walks away. Cancel/timeout drop faster.
+DEFAULT_GPU_SCALEDOWN = 90
+DEFAULT_GPU_DROP_WINDOW = 2
 # Hung generate used to sit on L40S for 3600s. 20 min is enough for Hunyuan.
 DEFAULT_GPU_TIMEOUT = 20 * 60
 
@@ -108,7 +112,17 @@ class ModalIdleSettings:
     def cpu_function_kwargs(self) -> dict:
         return idle_release_kwargs(self.cpu_scaledown_window)
 
+    def gpu_function_kwargs(self) -> dict:
+        """One-shot GPU functions (setup.py bake). Not an interactive session."""
+        return {
+            "gpu": list(self.gpu),
+            **idle_release_kwargs(self.gpu_scaledown_window),
+            "single_use_containers": True,
+        }
+
     def gpu_cls_kwargs(self) -> dict:
+        # Keep the class container + loaded weights for a short retry window.
+        # Do NOT set single_use_containers: that reloads Hunyuan on every click.
         kwargs: dict = {
             "gpu": list(self.gpu),
             **idle_release_kwargs(self.gpu_scaledown_window),

@@ -161,9 +161,10 @@ def heal_run(job_id: str) -> Optional[str]:
     try:
         _mutate(job_id, apply)
         if kind:
-            from services.modal_runtime import stop_run_compute
+            from services.modal_runtime import release_gpu_pool, stop_run_compute
 
             stop_run_compute(job_id)
+            release_gpu_pool()
         return kind[0] if kind else None
     except Exception as exc:  # noqa: BLE001
         print(f"[run-ledger] heal_run failed: {exc}")

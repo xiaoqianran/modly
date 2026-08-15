@@ -13,7 +13,8 @@
 | `modal serve modal/app.py` 开着不关 | 容器不缩容，CPU 一直计费；也没有持久 memory snapshot | **不要。** 只在改 `modal/app.py` 时用，Ctrl-C 立刻停 |
 | 桌面一直开着、空闲不点 Generate | 本机网关自己回 `/health`，**不唤醒** Modal | 打开 App ≠ 烧云端 |
 | 点 Generate / 下模型 / 装插件 | CPU ASGI 醒几秒，GPU 只在 `GpuGenerator.generate` 期间醒 | 这才是该付钱的窗口 |
-| 生成结束 | GPU **5 秒** 缩到 0；CPU **8 秒** 缩到 0 | 默认 |
+| 生成成功 | GPU **再留 90 秒**（看结果、改参数再点一次不必重新 load）；然后缩到 0 | 默认 |
+| 取消 / 卡住超时 | 立刻停 FunctionCall，GPU **2 秒**内卸掉 | 用户说停就停 |
 
 `deploy` 留下的是一份**说明书**（函数名、URL、Volume 名），不是一台 24h 开机的机器。ComfyUI 仓库里同一句话：冒烟用 `modal deploy`，不要用 `modal serve` 保活。
 
@@ -75,14 +76,19 @@ modal run modal/app.py::bake_official_extensions   # CPU clone + CPU 下权重 +
 
 不要 `modal serve` 挂过夜。改 stub 时再用，用完关掉。
 
-### 2. 空闲窗口（比 ComfyUI 的 GPU 网页更短的“有 UI 也空闲”）
+### 2. 空闲窗口（按桌面用法，不是抄 ComfyUI 的 5 秒）
 
-| 容器 | scaledown | min / buffer |
-|------|-----------|----------------|
+用户真正的循环是：**出图 → 转一转看 → 改个参数再 Generate**。Hunyuan 装进显存往往要几十秒。GPU 5 秒就拆，等于每次重点都重新 load，人等的时间比那 5 秒 GPU 钱贵得多。
+
+| 容器 | 空闲策略 | min / buffer |
+|------|----------|----------------|
 | CPU ASGI | **8s**（`MODLY_CPU_SCALEDOWN`） | 0 / 0 |
-| GPU Cls / setup.py | **5s**（`MODLY_GPU_SCALEDOWN`） | 0 / 0 |
+| GPU 推理（`GpuGenerator`） | 成功后 **90s 留着模型和显存**（`MODLY_GPU_SCALEDOWN`）；取消/超时 **2s 卸掉** | 0 / 0 |
+| GPU `setup.py` 烘焙 | 跑完即毁（`single_use_containers`） | 0 / 0 |
 
-GLB 由 CPU ASGI + Volume 提供，GPU 在 `generate()` return 并 `volume.commit()` 之后就可以死。不必为 Viewer 保活 GPU。
+打开 App、看 GLB、smooth/remesh **不会**保活 GPU。Viewer 吃本机缓存的文件。只有 Generate / 取消超时动 GPU 层。
+
+L40S 90 秒大约 **$0.05**。同一次会话里连点 3 次 Generate，只付一次 load。走开喝杯水，GPU 回到 0。
 
 ### 3. 默认卡：L40S only
 
@@ -128,7 +134,7 @@ GPU snapshot 默认关（`MODLY_GPU_SNAPSHOT=1` 才开）：我们不在 `enter(
 |--|------------------|-------------------------|
 | 控制面 | 本机 Studio :8787，但 GPU 仍是网页 | 本机 Electron :8765，**网页永不在 GPU** |
 | 打开 UI | 若连 GPU web，L40S 不缩 | `/health` 本地，云端继续 0 |
-| 空闲 GPU | 5s，但 WS 会钉住 | 5s，且没有 WS 钉 GPU |
+| 空闲 GPU | 5s，但 WS 会钉住 | **90s 重试窗口**（无 WS）；取消则 2s 卸 |
 | 下模型 | CPU hydrate | CPU hydrate（扩展源码也 CPU） |
 | 默认 GPU | L40S | L40S（禁止静默 A100） |
 | 快照 | memory + GPU（Comfy 进程整包） | memory（registry）；GPU 快照可选 |
@@ -160,7 +166,7 @@ modal serve modal/app.py   # 用完 Ctrl-C
 |------|------|------|
 | `MODLY_GPU` | `L40S` | 逗号分隔；空 = 只有 L40S |
 | `MODLY_CPU_SCALEDOWN` | `8` | CPU ASGI 空闲秒 |
-| `MODLY_GPU_SCALEDOWN` | `5` | GPU 空闲秒 |
+| `MODLY_GPU_SCALEDOWN` | `90` | 生成**成功**后 GPU 再留多少秒给下一次 Generate（取消/超时是 2s） |
 | `MODLY_MEMORY_SNAPSHOT` | `1` | deploy 后给 GpuGenerator 拍内存快照 |
 | `MODLY_GPU_SNAPSHOT` | `0` | 实验性 GPU 快照；没在 enter() 里 load 模型就别开 |
 | `MODLY_GPU_TIMEOUT` | `1200` | GPU `generate` 函数超时（秒）。卡住就杀，不再空转 1 小时 |

@@ -54,6 +54,7 @@ def spawn_gpu_generation(
         call_id = getattr(call, "object_id", None) or getattr(call, "call_id", "") or ""
         if not call_id:
             print("[modal] spawn succeeded but FunctionCall id is empty — cannot cancel later")
+        hold_gpu_for_retry()
         return SpawnResult(started=True, call_id=str(call_id))
     except Exception as exc:  # noqa: BLE001
         print(f"[modal] GPU spawn failed: {exc}")
@@ -109,6 +110,38 @@ def cancel_function_call(call_id: str) -> bool:
     except Exception as exc:  # noqa: BLE001
         print(f"[modal] FunctionCall.cancel({call_id}) failed: {exc}")
         return False
+
+
+def _set_gpu_autoscaler(*, scaledown_window: int) -> bool:
+    if not is_modal_runtime():
+        return False
+    try:
+        import modal
+
+        inst = modal.Cls.from_name(app_name(), "GpuGenerator")()
+        updater = getattr(inst, "update_autoscaler", None)
+        if updater is None:
+            return False
+        updater(min_containers=0, buffer_containers=0, scaledown_window=scaledown_window)
+        print(f"[modal] GpuGenerator autoscaler scaledown={scaledown_window}s min=0")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        print(f"[modal] update_autoscaler failed: {exc}")
+        return False
+
+
+def hold_gpu_for_retry() -> bool:
+    """Successful spawn: keep the loaded model around for the next Generate."""
+    from services.modal_idle import ModalIdleSettings
+
+    return _set_gpu_autoscaler(scaledown_window=ModalIdleSettings.from_env().gpu_scaledown_window)
+
+
+def release_gpu_pool() -> bool:
+    """Cancel / timeout: drop the GPU container quickly. Next Generate restores linger."""
+    from services.modal_idle import DEFAULT_GPU_DROP_WINDOW
+
+    return _set_gpu_autoscaler(scaledown_window=DEFAULT_GPU_DROP_WINDOW)
 
 
 def stop_run_compute(job_id: str) -> bool:
