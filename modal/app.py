@@ -197,9 +197,22 @@ def bake_official_extensions():
     print("setup.py (GPU)", setup_official_extensions.remote())
 
 
+@app.function(
+    volumes=VOLUMES,
+    timeout=60,
+    **IDLE.cpu_function_kwargs(),
+)
+def dump_recent_runs(limit: int = 20):
+    """Read the run ledger after ASGI has scaled to zero."""
+    _bind_runtime_env()
+    from services.run_tracker import list_snapshots  # noqa: PLC0415
+
+    return list_snapshots(limit)
+
+
 @app.cls(
     volumes=VOLUMES,
-    timeout=60 * 60,
+    timeout=IDLE.gpu_timeout_seconds,
     **IDLE.gpu_cls_kwargs(),
 )
 class GpuGenerator:
@@ -229,9 +242,13 @@ class GpuGenerator:
         """Run one image-to-mesh job and persist status in modal.Dict."""
         from services.generators.base import GenerationCancelled
         from services.job_store import get_job_store
+        from services.run_tracker import gpu_enter, gpu_leave, gpu_step
 
         store = get_job_store()
         store.update(job_id, status="running", progress=0, step="Loading model")
+        gpu_enter(job_id, "Loading model")
+        outcome = "error"
+        err = ""
 
         def progress_cb(pct: int, step: str = "") -> None:
             if store.is_cancelled(job_id):
@@ -259,15 +276,22 @@ class GpuGenerator:
             except ValueError:
                 rel = Path(collection) / output_path.name
             store.update(job_id, status="done", progress=100, output_url=f"/workspace/{rel.as_posix()}")
+            gpu_step(job_id, "volume.commit")
             workspace_vol.commit()
             models_vol.commit()
+            outcome = "done"
             return rel.as_posix()
         except GenerationCancelled:
             store.update(job_id, status="cancelled")
+            outcome = "cancelled"
             raise
         except Exception as exc:  # noqa: BLE001
             store.update(job_id, status="error", error=str(exc))
+            outcome = "error"
+            err = str(exc)[:500]
             raise
+        finally:
+            gpu_leave(job_id, outcome, err)
 
     @modal.method()
     def setup_extension(self, ext_id: str) -> str:

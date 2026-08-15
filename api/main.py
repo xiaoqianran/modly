@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi import HTTPException
 
-from routers import generation, model, optimize, status, settings, extensions, export, workflow_runs, agent, desktop_ipc
+from routers import generation, model, optimize, status, settings, extensions, export, workflow_runs, agent, desktop_ipc, runs
 
 
 @asynccontextmanager
@@ -55,6 +55,7 @@ app.include_router(export.router,          prefix="/export")
 app.include_router(workflow_runs.router,   prefix="/workflow-runs")
 app.include_router(agent.router)
 app.include_router(desktop_ipc.router)
+app.include_router(runs.router)
 
 
 @app.middleware("http")

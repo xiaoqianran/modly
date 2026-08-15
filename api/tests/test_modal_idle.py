@@ -34,6 +34,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(s.gpu, ("L40S",))
         self.assertEqual(s.cpu_scaledown_window, 8)
         self.assertEqual(s.gpu_scaledown_window, 5)
+        self.assertEqual(s.gpu_timeout_seconds, 20 * 60)
         self.assertTrue(s.memory_snapshot)
         self.assertFalse(s.gpu_snapshot)
         cpu = s.cpu_function_kwargs()

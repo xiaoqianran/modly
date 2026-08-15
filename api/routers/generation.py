@@ -9,7 +9,16 @@ from services.generators.base import smooth_progress, GenerationCancelled
 import re as _re
 from services.generator_registry import generator_registry, WORKSPACE_DIR
 from services.job_store import get_job_store
-from services.modal_runtime import spawn_gpu_generation
+from services.modal_runtime import commit_volume, is_modal_runtime, spawn_gpu_generation, stop_run_compute
+from services.run_tracker import (
+    apply_status_watch,
+    finish_run,
+    mark_cancel,
+    note_spawn,
+    note_spawn_failed,
+    open_run,
+    work_enter,
+)
 from schemas.generation import JobStatus
 
 router = APIRouter(tags=["generation"])
@@ -70,8 +79,17 @@ async def generate_from_image(
     store = get_job_store()
     store.put(job)
     store.cancel_event(job_id)
+    open_run(job_id, model_id, "generate")
 
-    if spawn_gpu_generation(job_id, model_id, image_bytes, full_params, collection):
+    spawned = spawn_gpu_generation(job_id, model_id, image_bytes, full_params, collection)
+    if spawned.started:
+        note_spawn(job_id, spawned.call_id)
+        return {"job_id": job_id}
+
+    if is_modal_runtime():
+        err = spawned.error or "GPU worker spawn failed"
+        note_spawn_failed(job_id, err)
+        store.update(job_id, status="error", error=err)
         return {"job_id": job_id}
 
     background_tasks.add_task(_run_generation, job_id, image_bytes, full_params, collection)
@@ -79,12 +97,13 @@ async def generate_from_image(
     return {"job_id": job_id}
 
 
-
 @router.get("/status/{job_id}")
 async def job_status(job_id: str):
     job = get_job_store().get(job_id)
     if not job:
         raise HTTPException(404, f"Job {job_id} not found")
+    if apply_status_watch(job_id):
+        job = get_job_store().get(job_id) or job
     return job
 
 
@@ -95,6 +114,8 @@ async def cancel_job(job_id: str):
     if not job:
         raise HTTPException(404, f"Job {job_id} not found")
     store.mark_cancel(job_id)
+    stop_run_compute(job_id)
+    mark_cancel(job_id, "client cancel")
     # Kill the active generator subprocess immediately so inference stops now.
     # _run_generation will catch the resulting exception, see job_id in _cancelled,
     # and return cleanly without setting an error status.
@@ -113,8 +134,10 @@ async def _run_generation(job_id: str, image_bytes: bytes, params: dict, collect
     store = get_job_store()
     job = store.get(job_id)
     if job is None:
+        finish_run(job_id, "error", "job missing")
         return
     store.update(job_id, status="running")
+    work_enter(job_id, "cpu.generate", "local")
 
     def progress_cb(pct: int, step: str = "") -> None:
         current = store.get(job_id)
@@ -154,6 +177,7 @@ async def _run_generation(job_id: str, image_bytes: bytes, params: dict, collect
             gen = await loop.run_in_executor(None, generator_registry.get_active)
 
         if store.is_cancelled(job_id):
+            finish_run(job_id, "cancelled")
             return
 
         # Direct output to the collection subfolder
@@ -172,6 +196,7 @@ async def _run_generation(job_id: str, image_bytes: bytes, params: dict, collect
         )
 
         if store.is_cancelled(job_id):
+            finish_run(job_id, "cancelled")
             return
 
         try:
@@ -180,13 +205,15 @@ async def _run_generation(job_id: str, image_bytes: bytes, params: dict, collect
         except ValueError:
             output_url = f"/workspace/{collection}/{output_path.name}"
         store.update(job_id, status="done", progress=100, output_url=output_url)
-        from services.modal_runtime import commit_volume
         commit_volume("modly-workspace")
+        finish_run(job_id, "done")
 
     except GenerationCancelled:
         store.update(job_id, status="cancelled")
+        finish_run(job_id, "cancelled")
     except Exception as exc:
         if store.is_cancelled(job_id):
+            finish_run(job_id, "cancelled")
             return
         tb = traceback.format_exc()
         msg = f"[Generation ERROR] {exc}\n{tb}"
@@ -195,3 +222,4 @@ async def _run_generation(job_id: str, image_bytes: bytes, params: dict, collect
         except UnicodeEncodeError:
             print(msg.encode("ascii", errors="replace").decode("ascii"))
         store.update(job_id, status="error", error=tb.strip())
+        finish_run(job_id, "error", tb.strip()[:500])
