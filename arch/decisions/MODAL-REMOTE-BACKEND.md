@@ -27,9 +27,10 @@ Features that invent a new “scan the local models folder” IPC still need a
 one-line shim in `ipc-handlers.ts`.
 
 This is **not** "change `apiUrl` in the renderer and ship". CodeGraph
-(173 files, 2,305 nodes, 5,672 edges) plus a source pass show eight
+2026-08-15 (this tree 196 files / 2,617 nodes / 6,517 edges; upstream
+`dev` without Modal 179 / 2,496 / 6,318) plus a source pass show eight
 coupling surfaces. The overlay concentrates those surfaces in Electron
-main + additive FastAPI routes.
+main + additive FastAPI routes. See `docs/upstream-updates.md`.
 
 ## Context
 

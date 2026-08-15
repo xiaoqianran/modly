@@ -14,7 +14,7 @@
 >
 > 本机装 Modal CLI 必须用 `pip install 'modal[api-proxy-support]'`（或 `pip install -r modal/requirements.txt`），否则 `HTTPS_PROXY` / `ALL_PROXY` 走不到 `api.modal.com`。这是 CLI extra，不要打进云端 Image。
 >
-> 你画的拓扑是对的；“改 4 块就够”不够。CodeGraph 全库索引（173 files / 2,305 nodes / 5,672 edges）之后，真正要动的是 **8 个耦合面**，但它们被收进 overlay，而不是散落到 React。
+> 你画的拓扑是对的；“改 4 块就够”不够。CodeGraph 2026-08-15：本树 **196 files / 2,617 nodes / 6,517 edges**，上游无 Modal 的 `dev` **179 / 2,496 / 6,318**。真正要动的耦合面被收进 overlay，而不是散落到 React。对照见 [`docs/upstream-updates.md`](upstream-updates.md)。
 
 ---
 
