@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { installIpcIntercept } from './ipc-intercept'
 import { setupIpcHandlers } from './ipc-handlers'
+import { setupModalSessionIpc } from './modal-session-ipc'
 import { PythonBridge } from './python-bridge'
 import { logger, archiveCurrentSession } from './logger'
 import { initAutoUpdater } from './updater'
@@ -107,6 +108,7 @@ app.whenReady().then(async () => {
   pythonBridge.setWindowGetter(() => mainWindow)
   installIpcIntercept()
   setupIpcHandlers(pythonBridge, () => mainWindow)
+  setupModalSessionIpc(() => pythonBridge)
   initAutoUpdater(() => mainWindow)
 
   createWindow()

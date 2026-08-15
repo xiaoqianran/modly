@@ -98,8 +98,9 @@ need a one-place overlay edit.
 ## Settings
 
 - `backendMode`: `local` (default) or `remote`
-- `remoteApiUrl`: Modal FastAPI URL (`https://….modal.run`)
-- `remoteApiToken`: optional Bearer token (also `MODLY_REMOTE_API_TOKEN`)
+- `remoteApiUrl`: Modal FastAPI URL (`https://….modal.run`) if you choose to remember it on this PC
+- `remoteApiToken`: optional FastAPI Bearer (also `MODLY_REMOTE_API_TOKEN`) — not the Modal CLI `ak-` / `as-` pair
+- Session-only alternative: `modal:session:connect` keeps CLI tokens and the resolved URL in the Electron main process until quit (`src/shared/modalSession.ts`)
 
 Environment override (no settings UI needed):
 

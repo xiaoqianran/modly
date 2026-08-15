@@ -96,6 +96,9 @@ const STAY_ON_LAPTOP = [
   'app:info',
   'cache:clear',
   'shell:openExternal',
+  'modal:session:connect',
+  'modal:session:status',
+  'modal:session:clear',
 ]
 
 /** Local handler already talks to 8765; intercept must not replace these. */
@@ -139,6 +142,7 @@ test('every preload invoke channel is classified; laptop chrome stays local', as
   const handles = unique([
     ...handleChannels(readRepo('electron/main/ipc-handlers.ts')),
     ...handleChannels(readRepo('electron/main/artifact-registry-service.ts')),
+    ...handleChannels(readRepo('electron/main/modal-session-ipc.ts')),
   ])
 
   for (const channel of invokes) {
@@ -197,6 +201,27 @@ test('Python and desktop linger defaults stay 60', () => {
   assert.match(readRepo('api/services/modal_idle.py'), /DEFAULT_GPU_SCALEDOWN = 60/)
   assert.match(readRepo('src/shared/modalPrefs.ts'), /DEFAULT_GPU_LINGER_SECONDS = 60/)
   assert.match(readRepo('api/services/modal_prefs.py'), /DEFAULT_LINGER_SECONDS = DEFAULT_GPU_SCALEDOWN/)
+})
+
+test('Modal CLI tokens stay in a laptop session IPC, never settings.json or Generate', () => {
+  const sessionIpc = readRepo('electron/main/modal-session-ipc.ts')
+  const session = readRepo('electron/main/modal-session.ts')
+  const settingsStore = readRepo('electron/main/settings-store.ts')
+  const handlers = readRepo('electron/main/ipc-handlers.ts')
+  const firstRun = readRepo('src/areas/setup/FirstRunSetup.tsx')
+  const settings = readRepo('src/areas/settings/components/ApplicationSection.tsx')
+  const generate = readRepo('src/areas/generate/GeneratePage.tsx')
+  const useApi = readRepo('src/shared/hooks/useApi.ts')
+  assert.match(sessionIpc, /modal:session:connect/)
+  assert.match(session, /Never writes token-id/)
+  assert.equal(settingsStore.includes('token-id'), false)
+  assert.equal(handlers.includes('modal:session'), false)
+  assert.match(firstRun, /Connect this session/)
+  assert.equal(firstRun.includes('settings.set'), false)
+  assert.match(settings, /Connect this session/)
+  assert.equal(generate.includes('token-id'), false)
+  assert.equal(useApi.includes('token-id'), false)
+  assert.equal(useApi.includes('modal:session'), false)
 })
 
 test('Modal GPU prefs live in Settings, not Generate / useApi', () => {

@@ -9,13 +9,14 @@
 import { ipcMain } from 'electron'
 import { app } from 'electron'
 import { dispatchRemoteIpc, type IpcListener } from './ipc-dispatch'
+import { overlayRemoteSettings } from './modal-session'
 import { resolveRemoteBackend } from './remote-backend'
 import { getSettings } from './settings-store'
 import { afterSettingsSet, forwardUnknown, mergeRemoteExtensionCatalog, remoteReplaceIpc } from './remote-ipc'
 
 function remoteEnabled(): boolean {
   try {
-    return resolveRemoteBackend(getSettings(app.getPath('userData'))).enabled
+    return resolveRemoteBackend(overlayRemoteSettings(getSettings(app.getPath('userData')))).enabled
   } catch {
     return false
   }
