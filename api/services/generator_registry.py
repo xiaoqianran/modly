@@ -12,10 +12,42 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+import threading
+from typing import Callable, Dict, Optional, Tuple
 
 from services.generators.base import BaseGenerator
 from services.extension_process import ExtensionProcess, _venv_python
+
+
+class ManifestStatusGenerator(BaseGenerator):
+    """Status-only stand-in when generator.py cannot be imported.
+
+    TRELLIS ships vendor/ and no venv; direct import dies on `from PIL`.
+    Without this stub, POST /generate/from-image 400s (unknown model) even
+    though pipeline.json is already on disk.
+    """
+
+    def __init__(self, model_dir: Path, outputs_dir: Path, manifest: dict, load_error: str) -> None:
+        super().__init__(model_dir, outputs_dir)
+        self.hf_repo = str(manifest.get("hf_repo") or "")
+        self.hf_skip_prefixes = list(manifest.get("hf_skip_prefixes") or [])
+        self.download_check = str(manifest.get("download_check") or "")
+        self._params_schema = list(manifest.get("params_schema") or [])
+        self.MODEL_ID = str(manifest.get("id") or "")
+        self.DISPLAY_NAME = str(manifest.get("name") or self.MODEL_ID)
+        self.load_error = load_error
+
+    def load(self) -> None:
+        raise RuntimeError(self.load_error)
+
+    def generate(
+        self,
+        image_bytes: bytes,
+        params: dict,
+        progress_cb: Optional[Callable[[int, str], None]] = None,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> Path:
+        raise RuntimeError(self.load_error)
 
 # ------------------------------------------------------------------ #
 # Global paths
@@ -92,24 +124,28 @@ def _discover_extensions() -> Dict[str, Tuple[type, dict]]:
 
             nodes = [n for n in manifest.get("nodes", []) if n.get("id")]
 
-            # --- Subprocess mode (new): venv present → use ExtensionProcess ---
-            # Also force subprocess mode for extensions that ship a build_vendor.py
-            # but whose vendor/ directory hasn't been built yet: this surfaces a
-            # loadError in the UI (Repair button) so the user can run setup.py.
+            # Subprocess when a venv exists OR the tree ships build_vendor.py.
+            # Official TRELLIS already has vendor/, so the old
+            # `(build_vendor and not vendor)` check fell through to a direct
+            # `from PIL import Image` in the Modal image (no Pillow). The
+            # whole extension was dropped and POST /generate 400'd Unknown model.
             has_venv         = _venv_python(ext_dir).exists()
             has_build_vendor = (ext_dir / "build_vendor.py").exists()
-            vendor_built     = (ext_dir / "vendor").exists()
-            subprocess_mode  = has_venv or (has_build_vendor and not vendor_built)
+            subprocess_mode  = has_venv or has_build_vendor
 
+            load_error = ""
             cls_or_None = None
             if not subprocess_mode:
-                # --- Direct mode (legacy): no venv → load generator.py directly ---
-                module_name = f"extensions.{ext_id}.generator"
-                spec   = importlib.util.spec_from_file_location(module_name, generator_path)
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = module
-                spec.loader.exec_module(module)
-                cls_or_None = getattr(module, class_name)
+                try:
+                    module_name = f"extensions.{ext_id}.generator"
+                    spec   = importlib.util.spec_from_file_location(module_name, generator_path)
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[module_name] = module
+                    spec.loader.exec_module(module)
+                    cls_or_None = getattr(module, class_name)
+                except Exception as exc:
+                    load_error = str(exc)
+                    print(f"[Registry] ERROR loading extension '{ext_dir.name}': {exc}")
 
             if nodes:
                 for node in nodes:
@@ -127,9 +163,13 @@ def _discover_extensions() -> Dict[str, Tuple[type, dict]]:
                         "input":            node.get("input", "image"),
                         "output":           node.get("output", "mesh"),
                     }
+                    if load_error:
+                        node_manifest["_load_error"] = load_error
                     full_id = f"{ext_id}/{node['id']}"
                     result[full_id] = (cls_or_None, node_manifest, ext_dir)
-                    if subprocess_mode:
+                    if load_error:
+                        print(f"[Registry] Node '{full_id}' import failed (status-only)")
+                    elif subprocess_mode:
                         if has_venv:
                             print(f"[Registry] Loaded subprocess node: {full_id}")
                         else:
@@ -138,8 +178,13 @@ def _discover_extensions() -> Dict[str, Tuple[type, dict]]:
                         print(f"[Registry] Loaded node: {full_id} ({class_name})")
             else:
                 # No nodes defined — register by ext_id as fallback
-                result[ext_id] = (cls_or_None, manifest, ext_dir)
-                if subprocess_mode:
+                fallback_manifest = dict(manifest)
+                if load_error:
+                    fallback_manifest["_load_error"] = load_error
+                result[ext_id] = (cls_or_None, fallback_manifest, ext_dir)
+                if load_error:
+                    print(f"[Registry] Extension '{ext_id}' import failed (status-only)")
+                elif subprocess_mode:
                     if has_venv:
                         print(f"[Registry] Loaded subprocess extension: {ext_id}")
                     else:
@@ -162,7 +207,7 @@ class GeneratorRegistry:
         self._generators: Dict[str, BaseGenerator] = {}
         self._manifests:  Dict[str, dict]          = {}
         self._errors:     Dict[str, str]           = {}
-        self._active_id:  str = os.environ.get("SELECTED_MODEL_ID", "sf3d")
+        self._active_id:  str = (os.environ.get("SELECTED_MODEL_ID") or "").strip()
 
     def initialize(self) -> None:
         """Discovers and instantiates all extensions. Call at startup."""
@@ -172,12 +217,30 @@ class GeneratorRegistry:
             cls, manifest, ext_dir = entry
             try:
                 if cls is None:
-                    # Subprocess mode: venv must exist
-                    if not _venv_python(ext_dir).exists():
-                        raise RuntimeError(
-                            "venv not found — extension needs setup. "
-                            "Click 'Repair' on the Models page to run setup.py."
+                    load_error = str(manifest.get("_load_error") or "")
+                    if load_error or not _venv_python(ext_dir).exists():
+                        if load_error:
+                            msg = load_error
+                        elif (ext_dir / "setup.py").exists():
+                            msg = (
+                                "venv not found — extension needs setup. "
+                                "Click 'Repair' on the Models page to run setup.py."
+                            )
+                        else:
+                            ext_label = manifest.get("ext_id") or model_id
+                            msg = (
+                                f"{ext_label} has no isolated venv, so Generate cannot "
+                                "run it on this backend. Installed only means weights "
+                                "are already on disk."
+                            )
+                        gen = ManifestStatusGenerator(
+                            MODELS_DIR / model_id, WORKSPACE_DIR, manifest, msg
                         )
+                        self._generators[model_id] = gen
+                        self._manifests[model_id] = manifest
+                        self._errors[model_id] = msg
+                        print(f"[Registry] Status-only '{model_id}': {msg}")
+                        continue
                     # Subprocess mode: wrap in ExtensionProcess
                     gen = ExtensionProcess(ext_dir, manifest)
                     gen.model_dir   = MODELS_DIR / model_id
@@ -204,10 +267,11 @@ class GeneratorRegistry:
 
         if self._active_id not in self._generators:
             fallback = next(iter(self._generators))
-            print(
-                f"[Registry] WARNING: SELECTED_MODEL_ID='{self._active_id}' is unknown. "
-                f"Falling back to '{fallback}'."
-            )
+            if self._active_id:
+                print(
+                    f"[Registry] WARNING: SELECTED_MODEL_ID='{self._active_id}' is unknown. "
+                    f"Falling back to '{fallback}'."
+                )
             self._active_id = fallback
 
         print(f"[Registry] Active model  : {self._active_id}")
@@ -259,6 +323,11 @@ class GeneratorRegistry:
                 f"Unknown model ID: '{model_id}'. "
                 f"Available: {list(self._generators.keys())}"
             )
+        # Status-only stubs stay in _generators so /model/all can report
+        # downloaded weights, but Generate must 400 with the real reason
+        # instead of spawning a GPU that cannot import the extension.
+        if model_id in self._errors:
+            raise ValueError(self._errors[model_id])
         return self._generators[model_id]
 
     def get_manifest(self, model_id: str) -> dict:

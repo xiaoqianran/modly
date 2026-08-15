@@ -1,6 +1,7 @@
 import { app, BrowserWindow, shell, session } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { httpErrorMessage } from '../../src/shared/httpError'
 import { installOverlay } from './overlay-install'
 import { PythonBridge } from './python-bridge'
 import { logger, archiveCurrentSession } from './logger'
@@ -81,7 +82,7 @@ process.on('uncaughtException', (err) => {
 })
 
 process.on('unhandledRejection', (reason) => {
-  const msg = String(reason)
+  const msg = httpErrorMessage(reason)
   logger.error(`Unhandled rejection: ${msg}`)
   mainWindow?.webContents.send('app:error', msg)
 })
