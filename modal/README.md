@@ -31,6 +31,12 @@ uv creates `.venv-modal`, installs the CLI extra, then
 Never spawn `modal.cmd` from Electron (that was `spawn EINVAL` on Windows).
 There is no JS equivalent of `modal deploy` or `modal[api-proxy-support]`.
 
+Container paths in `modal/app.py` are POSIX string literals (`/root/api`).
+Do not wrap them in `pathlib.Path` before passing to `Image.add_local_dir`
+or Volume mounts — on Windows that becomes `\root\api` and Modal raises
+`InvalidError: only supports absolute remote_path values`.
+See https://modal.com/docs/reference/modal.Image
+
 `api-proxy-support` is the default local install. Plain `modal` cannot talk
 to `api.modal.com` through `HTTPS_PROXY` / `ALL_PROXY` (HTTP CONNECT or
 SOCKS4/5). Opt out with `MODAL_DISABLE_API_PROXY=1` or

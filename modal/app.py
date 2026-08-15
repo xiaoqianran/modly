@@ -30,10 +30,17 @@ from pathlib import Path
 import modal
 
 APP_NAME = "modly-backend"
-API_ROOT = Path("/root/api")
-MODELS_DIR = Path("/modly/models")
-WORKSPACE_DIR = Path("/modly/workspace")
-EXTENSIONS_DIR = Path("/modly/extensions")
+# Linux container paths. Keep these as str literals that start with "/".
+# On Windows, str(pathlib.Path("/root/api")) is "\root\api", and Modal's
+# Image.add_local_dir checks remote_path.startswith("/") — official docs:
+# https://modal.com/docs/reference/modal.Image
+#   .add_local_dir("./src", "/app/src")
+#   .add_local_dir(..., remote_path="/assets")
+#   .add_local_dir("/user/erikbern/.aws", remote_path="/root/.aws")
+API_ROOT = "/root/api"
+MODELS_DIR = "/modly/models"
+WORKSPACE_DIR = "/modly/workspace"
+EXTENSIONS_DIR = "/modly/extensions"
 
 # Repo-relative: `modal serve modal/app.py` is launched from the repository root.
 # Inside the container Modal copies this file to /root/app.py, so parent.parent/api
@@ -42,7 +49,7 @@ REPO_API = Path(__file__).resolve().parent.parent / "api"
 
 
 def _api_on_path() -> None:
-    for candidate in (API_ROOT, REPO_API):
+    for candidate in (Path(API_ROOT), REPO_API):
         if candidate.is_dir():
             sys.path.insert(0, str(candidate))
             return
@@ -82,9 +89,9 @@ workspace_vol = modal.Volume.from_name("modly-workspace", create_if_missing=True
 extensions_vol = modal.Volume.from_name("modly-extensions", create_if_missing=True)
 
 VOLUMES = {
-    str(MODELS_DIR): models_vol,
-    str(WORKSPACE_DIR): workspace_vol,
-    str(EXTENSIONS_DIR): extensions_vol,
+    MODELS_DIR: models_vol,
+    WORKSPACE_DIR: workspace_vol,
+    EXTENSIONS_DIR: extensions_vol,
 }
 
 image = (
@@ -93,15 +100,15 @@ image = (
     .pip_install_from_requirements(str(REPO_API / "requirements.txt"))
     .env(
         {
-            "MODELS_DIR": str(MODELS_DIR),
-            "WORKSPACE_DIR": str(WORKSPACE_DIR),
-            "EXTENSIONS_DIR": str(EXTENSIONS_DIR),
+            "MODELS_DIR": MODELS_DIR,
+            "WORKSPACE_DIR": WORKSPACE_DIR,
+            "EXTENSIONS_DIR": EXTENSIONS_DIR,
             "MODLY_RUNTIME": "modal",
             "MODLY_USE_GPU_WORKER": "1",
             "MODLY_APP_NAME": APP_NAME,
         }
     )
-    .add_local_dir(str(REPO_API), remote_path=str(API_ROOT))
+    .add_local_dir(str(REPO_API), remote_path=API_ROOT, ignore=["*.pyc", "__pycache__", ".venv"])
     .add_local_file(
         str(Path(__file__).resolve().parent / "workspace_secrets.py"),
         remote_path="/root/workspace_secrets.py",
@@ -130,9 +137,9 @@ def _bind_runtime_env() -> None:
     import os
     import sys as _sys
 
-    os.environ.setdefault("MODELS_DIR", str(MODELS_DIR))
-    os.environ.setdefault("WORKSPACE_DIR", str(WORKSPACE_DIR))
-    os.environ.setdefault("EXTENSIONS_DIR", str(EXTENSIONS_DIR))
+    os.environ.setdefault("MODELS_DIR", MODELS_DIR)
+    os.environ.setdefault("WORKSPACE_DIR", WORKSPACE_DIR)
+    os.environ.setdefault("EXTENSIONS_DIR", EXTENSIONS_DIR)
     os.environ.setdefault("MODLY_RUNTIME", "modal")
     os.environ.setdefault("MODLY_APP_NAME", APP_NAME)
     _sys.path.insert(0, str(API_ROOT))
@@ -191,7 +198,7 @@ def hydrate_official_models():
     from services.modal_hydrate import SNAPSHOT_IGNORE, hf_targets_from_extensions  # noqa: PLC0415
 
     # Read manifests directly so this works before setup.py clears .modly-incomplete.
-    for target in hf_targets_from_extensions(EXTENSIONS_DIR, MODELS_DIR):
+    for target in hf_targets_from_extensions(Path(EXTENSIONS_DIR), Path(MODELS_DIR)):
         dest = Path(target["dest"])
         if dest.exists() and any(dest.iterdir()):
             skipped.append(target["model_id"])
@@ -331,12 +338,13 @@ class GpuGenerator:
             gen = self.registry.get_active()
             if store.is_cancelled(job_id):
                 raise GenerationCancelled()
-            coll_dir = WORKSPACE_DIR / collection
+            workspace_root = Path(WORKSPACE_DIR)
+            coll_dir = workspace_root / collection
             coll_dir.mkdir(parents=True, exist_ok=True)
             gen.outputs_dir = coll_dir
             output_path = Path(gen.generate(image_bytes, params, progress_cb))
             try:
-                rel = output_path.relative_to(WORKSPACE_DIR)
+                rel = output_path.relative_to(workspace_root)
             except ValueError:
                 rel = Path(collection) / output_path.name
             store.update(job_id, status="done", progress=100, output_url=f"/workspace/{rel.as_posix()}")
