@@ -5,6 +5,14 @@
 
 import { OFFICIAL_CATALOG_STUBS } from '../../src/shared/officialExtensionStubs'
 
+const OFFICIAL_CATALOG_IDS = new Set(OFFICIAL_CATALOG_STUBS.map((stub) => stub.id))
+
+const OFFICIAL_CATALOG_SOURCES = new Set([
+  'https://github.com/lightningpixel/modly-hunyuan3d-mini-extension',
+  'https://github.com/lightningpixel/modly-triposg-extension',
+  'https://github.com/lightningpixel/modly-trellis2-extension',
+])
+
 export type OverlayHttpCall = {
   method: 'GET' | 'POST'
   path: string
@@ -42,6 +50,13 @@ export type CatalogManifest = {
     hf_skip_prefixes?: string[]
     hf_include_prefixes?: string[]
   }>
+}
+
+export function isOfficialCatalogRow(parsed: CatalogManifest): boolean {
+  const id = parsed.id ?? ''
+  if (OFFICIAL_CATALOG_IDS.has(id)) return true
+  const source = typeof parsed.source === 'string' ? parsed.source.toLowerCase().replace(/\/$/, '') : ''
+  return OFFICIAL_CATALOG_SOURCES.has(source)
 }
 
 const LOCAL_INSTALL_ERROR =
@@ -158,7 +173,7 @@ export function manifestToExtension(parsed: CatalogManifest) {
     version: parsed.version,
     description: parsed.description,
     author: typeof parsed.author === 'string' ? parsed.author : parsed.author?.name,
-    trusted: true,
+    trusted: isOfficialCatalogRow(parsed),
     builtin: false,
     source: parsed.source,
     nodes: (parsed.nodes ?? []).map((n) => ({

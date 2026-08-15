@@ -3,7 +3,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from services.modal_hydrate import dest_has_weights, download_hf_target, hf_targets_from_extensions, target_for_model_id
+from services.modal_hydrate import (
+    dest_has_weights,
+    disk_status_rows,
+    download_hf_target,
+    hf_targets_from_extensions,
+    model_is_downloaded,
+    target_for_model_id,
+)
 
 
 class HfTargetsTests(unittest.TestCase):
@@ -55,3 +62,36 @@ class HfTargetsTests(unittest.TestCase):
                 download_hf_target({"dest": str(dest), "hf_repo": "x/y", "hf_skip_prefixes": []}),
                 "skipped",
             )
+
+    def test_disk_status_sees_trellis_weights_without_importing_generator(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            ext = root / "trellis-2"
+            ext.mkdir()
+            (ext / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "id": "trellis-2",
+                        "type": "model",
+                        "nodes": [
+                            {
+                                "id": "trellis-2",
+                                "hf_repo": "microsoft/TRELLIS.2-4B",
+                                "download_check": "pipeline.json",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            models = root / "models"
+            dest = models / "trellis-2" / "trellis-2"
+            dest.mkdir(parents=True)
+            (dest / "pipeline.json").write_text("{}", encoding="utf-8")
+            rows = disk_status_rows(root, models)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["id"], "trellis-2/trellis-2")
+            self.assertTrue(rows[0]["downloaded"])
+            self.assertTrue(model_is_downloaded("trellis-2/trellis-2", root, models))
+            self.assertFalse(model_is_downloaded("missing/x", root, models))
+            self.assertEqual(disk_status_rows(None, models), [])

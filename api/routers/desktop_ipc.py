@@ -29,13 +29,15 @@ async def desktop_ipc(body: DesktopIpcRequest):
     kind = desktop_ipc_kind(channel)
 
     if kind == "model-is-downloaded":
-        from services.generator_registry import generator_registry
+        from services.generator_registry import EXTENSIONS_DIR, MODELS_DIR, generator_registry
+        from services.modal_hydrate import model_is_downloaded
 
         model_id = str(args[0]) if args else ""
+        download_check = str(args[1]) if len(args) > 1 and args[1] else ""
         try:
             return generator_registry.get_generator(model_id).is_downloaded()
         except Exception:
-            return False
+            return model_is_downloaded(model_id, EXTENSIONS_DIR, MODELS_DIR, download_check)
 
     if kind == "model-list-downloaded":
         from services.generator_registry import generator_registry

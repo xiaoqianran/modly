@@ -77,6 +77,49 @@ def dest_has_weights(dest: Path, download_check: str = "") -> bool:
         return False
 
 
+def model_is_downloaded(
+    model_id: str,
+    ext_root: Path | None,
+    models_root: Path,
+    download_check: str = "",
+) -> bool:
+    """True when weights exist on disk. Does not import generator.py."""
+    target = target_for_model_id(model_id, ext_root, models_root) if ext_root is not None else None
+    if target is not None:
+        return dest_has_weights(Path(target["dest"]), str(target.get("download_check") or download_check))
+    dest = models_root / model_id
+    return dest_has_weights(dest, download_check)
+
+
+def disk_status_rows(ext_root: Path | None, models_root: Path) -> list[dict[str, Any]]:
+    """Catalog nodes + downloaded flags from the filesystem.
+
+    Used when generator.py failed to import (TRELLIS on a Pillow-less
+    Modal image) so Models still sees pipeline.json as Installed.
+    """
+    if ext_root is None:
+        return []
+    rows: list[dict[str, Any]] = []
+    for target in hf_targets_from_extensions(ext_root, models_root):
+        dest = Path(target["dest"])
+        check = str(target.get("download_check") or "")
+        rows.append(
+            {
+                "id": target["model_id"],
+                "name": target["model_id"],
+                "description": "",
+                "version": "",
+                "vram_gb": 0,
+                "hf_repo": target["hf_repo"],
+                "tags": [],
+                "downloaded": dest_has_weights(dest, check),
+                "loaded": False,
+                "active": False,
+            }
+        )
+    return rows
+
+
 def target_for_model_id(model_id: str, ext_root: Path, models_root: Path) -> dict[str, Any] | None:
     for row in hf_targets_from_extensions(ext_root, models_root):
         if row["model_id"] == model_id:

@@ -12,14 +12,24 @@ test('catalog envelope from FastAPI unwraps; incomplete-looking local models are
   assert.deepEqual(unwrapCatalogPayload({}), [])
 
   const mapped = manifestToExtension({
-    id: 'hunyuan',
+    id: 'hunyuan3d-mini',
     displayName: 'Hunyuan',
     nodes: [{ id: 'mini', hf_repo: 'tencent/Hunyuan3D-2mini', download_check: 'model.safetensors' }],
   })
   assert.equal(mapped.type, 'model')
   assert.equal(mapped.builtin, false)
+  assert.equal(mapped.trusted, true)
   assert.equal(mapped.nodes[0].hfRepo, 'tencent/Hunyuan3D-2mini')
   assert.equal(mapped.nodes[0].downloadCheck, 'model.safetensors')
+
+  const leftover = manifestToExtension({
+    id: 'sdcpp',
+    name: 'stable-diffusion.cpp',
+    author: 'sdcpp-hooks',
+    source: 'examples/modal/modly_extension',
+    nodes: [{ id: 'txt2img', input: 'text', output: 'image' }],
+  })
+  assert.equal(leftover.trusted, false)
 
   const merged = mergeCatalogLists(
     [

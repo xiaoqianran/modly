@@ -295,6 +295,7 @@ class GeneratorRegistry:
 
     def all_status(self) -> list:
         result = []
+        seen = set()
         for model_id, gen in self._generators.items():
             manifest = self._manifests[model_id]
             result.append({
@@ -309,6 +310,14 @@ class GeneratorRegistry:
                 "loaded":      gen.is_loaded(),
                 "active":      model_id == self._active_id,
             })
+            seen.add(model_id)
+        # Import failures (e.g. TRELLIS `from PIL`) must not hide weights
+        # that are already on MODELS_DIR — Models uses this list as Installed.
+        from services.modal_hydrate import disk_status_rows  # noqa: PLC0415
+
+        for row in disk_status_rows(EXTENSIONS_DIR, MODELS_DIR):
+            if row["id"] not in seen:
+                result.append(row)
         return result
 
     def params_schema(self, model_id: Optional[str] = None) -> list:
