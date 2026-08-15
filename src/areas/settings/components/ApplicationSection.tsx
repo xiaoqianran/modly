@@ -141,7 +141,7 @@ export function ApplicationSection(): JSX.Element {
             <div className="rounded-lg border border-zinc-700/60 bg-zinc-900/40 p-3 space-y-2">
               <p className="text-xs font-medium text-zinc-300">This-session tokens</p>
               <p className="text-[11px] text-zinc-500">
-                Paste your Modal CLI pair. Connect only looks up the workspace and checks the CPU URL — it does not deploy. First time: double-click `scripts\deploy-modal.bat` (uv + login). Deploy registers the empty shell; quit drops GPU. Nothing is written to the settings folder.
+                Paste your Modal CLI pair. Connect looks up the workspace and, if needed, deploys the empty CPU shell with uv + `python -m modal deploy` (no browser — token-id + token-secret are enough). Same as `scripts\deploy-modal.bat`. Idle is 0 CPU / 0 GPU. Nothing is written to the settings folder.
               </p>
               {session?.active && (
                 <p className="text-[11px] text-emerald-400/90 font-mono break-all">

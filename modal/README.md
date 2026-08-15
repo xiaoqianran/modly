@@ -17,15 +17,19 @@ generate / download / setup request. Do not leave `modal serve` running.
 ```bash
 pip install -r modal/requirements.txt   # modal[api-proxy-support]
 # equivalent: pip install 'modal[api-proxy-support]'
-modal token set          # never paste the token into git or chat
-# Desktop can instead use Connect this session (memory only; not settings.json)
-modal deploy modal/app.py
+# token-id + token-secret are enough (env or `modal token set`). No browser.
+export MODAL_TOKEN_ID=ak-…
+export MODAL_TOKEN_SECRET=as-…
+# Desktop Connect this session does the same in memory (not settings.json)
+python -m modal deploy modal/app.py
 modal run modal/app.py::bake_official_extensions   # CPU clone + CPU HF + GPU setup.py
 ```
 
-On Windows, double-click `scripts/deploy-modal.bat` instead: uv creates
-`.venv-modal`, installs the CLI extra, opens Modal login, then deploys.
-The Electron app does not spawn `modal` (that was `spawn EINVAL` on Windows).
+On Windows, double-click `scripts/deploy-modal.bat` or use Connect:
+uv creates `.venv-modal`, installs the CLI extra, then
+`python.exe -m modal deploy` with the pasted pair. No `modal setup`.
+Never spawn `modal.cmd` from Electron (that was `spawn EINVAL` on Windows).
+There is no JS equivalent of `modal deploy` or `modal[api-proxy-support]`.
 
 `api-proxy-support` is the default local install. Plain `modal` cannot talk
 to `api.modal.com` through `HTTPS_PROXY` / `ALL_PROXY` (HTTP CONNECT or

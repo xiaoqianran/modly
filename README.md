@@ -59,18 +59,20 @@ npm run dev
 
 **`modal deploy` 不是一直开着的机器。** 它只在你的 Modal 账号里登记 `modly-backend`（CPU FastAPI + GPU 工人的名字和 URL）。空闲是 **0 个 CPU、0 张 GPU**，不按「部署着」按小时收费。关掉 `npm run dev` **不会删掉**这次登记；正在跑的 GPU 会在退出时被要求 2 秒内卸掉，CPU 几秒后缩到 0。
 
-Windows 上双击（需要已安装 [uv](https://docs.astral.sh/uv/)）：
+**不必先开浏览器登录。** 只要有 `token-id` + `token-secret`（你已经能在终端跑通的那一对），Connect 或下面的脚本就能 `python -m modal deploy`。`modal setup` / `token new` 才会跳浏览器；这边不走那条路。
+
+Windows 上也可以双击（需要已安装 [uv](https://docs.astral.sh/uv/)）：
 
 ```bat
 scripts\deploy-modal.bat
 ```
 
-脚本用 uv 在项目里建临时 `.venv-modal`，只往这个 venv 装 `modal[api-proxy-support]`，然后让你登录 Modal，再 `modal deploy modal/app.py`。日常跑 Electron **不用**这个 venv，也 **不用**本机再装 modal。
+脚本用 uv 在项目里建临时 `.venv-modal`，只往这个 venv 装 `modal[api-proxy-support]`，让你粘贴同一对 token，再 `python -m modal deploy modal/app.py`。不跑 `modal setup`。
 
 然后 `npm run dev`，选 **Use a Modal cloud backend instead** / Settings → Connect this session：
 
-- 把 `token-id` / `token-secret`（或整行 `modal token set …`）贴进 App。只活在这一次打开的进程里，不写 settings 文件夹。
-- 或者贴 deploy 打印出来的 `https://…modal.run` URL。
+- 把 `token-id` / `token-secret`（或整行 `modal token set …`）贴进 App。只活在这一次打开的进程里，不写 settings 文件夹。如果云端还没有 `fastapi_app`，Connect 会用 uv 建 `.venv-modal` 并 deploy（和脚本同一条路径）。
+- 或者贴已经 deploy 过的 `https://…modal.run` URL。
 
 下面那个 **API token / Bearer** 是可选的 FastAPI 口令，**不是** `ak-` / `as-` 那一对。
 

@@ -127,7 +127,7 @@ function ChoosePathPanel({
       {remoteOpen && (
         <div className="mt-3 space-y-2">
           <p className="text-[11px] text-zinc-500">
-            Stays in this app until you quit. First time on Windows: double-click `scripts\deploy-modal.bat` (uv creates a temp venv, you log in, it deploys the empty shell). Connect does not install modal.
+            Stays in this app until you quit. Paste `modal token set --token-id … --token-secret …`. Connect looks up the workspace and, if the CPU app is missing, deploys with uv + `python -m modal deploy` (no browser). Same path as `scripts\deploy-modal.bat`.
           </p>
           <input
             value={tokenSetCommand}
