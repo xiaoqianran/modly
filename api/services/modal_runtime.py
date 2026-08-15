@@ -88,8 +88,9 @@ def _function_call_cls():
 def cancel_function_call(call_id: str) -> bool:
     """Stop a spawned GPU call so a failed/cancelled job does not keep billing.
 
-    `terminate_containers=True` is required: generate() only checks cancel
-    between progress ticks. A hang inside the model never sees the flag.
+    Try `terminate_containers=True` first. Some Modal workspaces reject that
+    flag (`terminate_containers must be false`); fall back to a plain cancel
+    so we still stop the FunctionCall.
     """
     if not call_id or not is_modal_runtime():
         return False
@@ -97,8 +98,12 @@ def cancel_function_call(call_id: str) -> bool:
         call = _function_call_cls().from_id(call_id)
         try:
             call.cancel(terminate_containers=True)
-        except TypeError:
-            call.cancel()
+        except Exception as first:  # noqa: BLE001
+            try:
+                call.cancel()
+            except Exception as second:  # noqa: BLE001
+                print(f"[modal] FunctionCall.cancel({call_id}) failed: {first}; fallback: {second}")
+                return False
         print(f"[modal] cancelled FunctionCall {call_id}")
         return True
     except Exception as exc:  # noqa: BLE001

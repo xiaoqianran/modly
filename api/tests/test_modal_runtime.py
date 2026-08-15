@@ -25,14 +25,16 @@ class CancelTests(unittest.TestCase):
         self.assertFalse(stop_run_compute("j"))
 
     @patch.dict("os.environ", {"MODLY_RUNTIME": "modal"}, clear=False)
-    def test_cancel_terminates_container(self) -> None:
+    def test_cancel_falls_back_when_terminate_rejected(self) -> None:
         call = MagicMock()
+        call.cancel.side_effect = [RuntimeError("terminate_containers must be false"), None]
         fc_cls = MagicMock()
         fc_cls.from_id.return_value = call
         with patch("services.modal_runtime._function_call_cls", return_value=fc_cls):
             self.assertTrue(cancel_function_call("fc-99"))
-        fc_cls.from_id.assert_called_once_with("fc-99")
-        call.cancel.assert_called_once_with(terminate_containers=True)
+        self.assertEqual(call.cancel.call_count, 2)
+        call.cancel.assert_any_call(terminate_containers=True)
+        call.cancel.assert_any_call()
 
     def test_stop_run_compute_reads_spawn_id(self) -> None:
         open_run("j2", "m", "generate")
