@@ -28,3 +28,12 @@ class MemoryJobStoreTests(unittest.TestCase):
         store.mark_cancel("j1")
         store.update("j1", status="running", progress=1)
         self.assertEqual(store.get("j1").status, "cancelled")
+
+    def test_update_does_not_resurrect_done_or_error(self) -> None:
+        store = MemoryJobStore()
+        store.put(_Job("done-1", "done"))
+        store.update("done-1", status="running", progress=1)
+        self.assertEqual(store.get("done-1").status, "done")
+        store.put(_Job("err-1", "error"))
+        store.update("err-1", status="running", step="Loading model")
+        self.assertEqual(store.get("err-1").status, "error")

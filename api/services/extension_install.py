@@ -24,15 +24,20 @@ def parse_github_repo(url: str) -> tuple[str, str]:
     return parts[0], parts[1].removesuffix(".git")
 
 
-def download_github_tarball(owner: str, repo: str) -> bytes:
+def github_api_headers() -> dict[str, str]:
+    """GitHub tarball clone. Live lesson: private/rate-limited repos 401 without GITHUB_TOKEN."""
     import os
 
-    url = f"https://api.github.com/repos/{owner}/{repo}/tarball/HEAD"
     headers = {"Accept": "application/vnd.github.v3+json", "User-Agent": "modly"}
     token = (os.environ.get("GITHUB_TOKEN") or "").strip()
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    req = Request(url, headers=headers)
+    return headers
+
+
+def download_github_tarball(owner: str, repo: str) -> bytes:
+    url = f"https://api.github.com/repos/{owner}/{repo}/tarball/HEAD"
+    req = Request(url, headers=github_api_headers())
     with urlopen(req, timeout=120) as resp:
         return resp.read()
 

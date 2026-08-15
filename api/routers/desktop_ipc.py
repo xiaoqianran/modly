@@ -12,6 +12,8 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from services.desktop_ipc_policy import desktop_ipc_fallback_body, desktop_ipc_kind
+
 router = APIRouter(tags=["desktop-ipc"])
 
 
@@ -24,8 +26,9 @@ class DesktopIpcRequest(BaseModel):
 async def desktop_ipc(body: DesktopIpcRequest):
     channel = body.channel
     args = body.args
+    kind = desktop_ipc_kind(channel)
 
-    if channel == "model:isDownloaded":
+    if kind == "model-is-downloaded":
         from services.generator_registry import generator_registry
 
         model_id = str(args[0]) if args else ""
@@ -34,7 +37,7 @@ async def desktop_ipc(body: DesktopIpcRequest):
         except Exception:
             return False
 
-    if channel == "model:listDownloaded":
+    if kind == "model-list-downloaded":
         from services.generator_registry import generator_registry
 
         return [
@@ -43,10 +46,4 @@ async def desktop_ipc(body: DesktopIpcRequest):
             if row.get("downloaded")
         ]
 
-    if channel.startswith("model:") or channel.startswith("extensions:"):
-        return {
-            "fallback": True,
-            "detail": f"No Modal adapter for {channel} yet. Add one here; Electron does not need a patch.",
-        }
-
-    return {"fallback": True, "detail": f"Unhandled channel {channel}"}
+    return desktop_ipc_fallback_body(channel)
