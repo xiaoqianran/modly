@@ -99,15 +99,39 @@ def _write_extension(
     return ext
 
 
+_TRELLIS_LIKE_GENERATOR = """
+from pathlib import Path
+from typing import Callable, Optional
+import threading
+from PIL import Image
+from services.generators.base import BaseGenerator
+
+class DummyGenerator(BaseGenerator):
+    MODEL_ID = "trellis-2"
+    DISPLAY_NAME = "TRELLIS.2"
+
+    def load(self) -> None:
+        self._model = True
+
+    def generate(self, image_bytes, params, progress_cb=None, cancel_event=None):
+        return self.outputs_dir / "out.glb"
+"""
+
+
 class StatusOnlyDiscoverTests(unittest.TestCase):
-    def test_vendor_without_venv_is_known_but_not_runnable(self) -> None:
+    def test_vendor_tree_with_pillow_is_a_known_runnable_model(self) -> None:
+        """Official TRELLIS: vendor/ + no venv + `from PIL import Image`.
+
+        Live bug: registry dropped it → POST /generate 400 Unknown model.
+        With Pillow in the app image it must stay in Available and be runnable.
+        """
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             _write_extension(
                 root,
                 ext_id="trellis-2",
                 node_id="trellis-2",
-                generator_py="from PIL import Image\n\nclass DummyGenerator:\n    pass\n",
+                generator_py=_TRELLIS_LIKE_GENERATOR,
                 extra_files={"build_vendor.py": "# vendor builder\n"},
                 dirs=("vendor",),
             )
@@ -123,15 +147,15 @@ class StatusOnlyDiscoverTests(unittest.TestCase):
                 registry.initialize()
 
             model_id = "trellis-2/trellis-2"
-            self.assertIn(model_id, registry._generators)
-            self.assertTrue(registry._generators[model_id].is_downloaded())
-            self.assertEqual(registry.params_schema(model_id), [])
-            with self.assertRaises(ValueError) as ctx:
-                registry.get_generator(model_id)
-            self.assertIn("venv", str(ctx.exception).lower())
-            self.assertNotIn("Unknown model ID", str(ctx.exception))
+            gen = registry.get_generator(model_id)
+            self.assertTrue(gen.is_downloaded())
+            self.assertNotIn(model_id, registry.load_errors())
             rows = {item["id"]: item for item in registry.all_status()}
             self.assertTrue(rows[model_id]["downloaded"])
+
+    def test_requirements_include_pillow_for_trellis_import(self) -> None:
+        req = Path(__file__).resolve().parents[1] / "requirements.txt"
+        self.assertIn("pillow", req.read_text(encoding="utf-8").lower())
 
     def test_direct_import_failure_keeps_status_row(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
