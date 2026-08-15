@@ -1,13 +1,14 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0\.."
 
 echo.
 echo  Modly — one-time Modal deploy (Windows + uv)
 echo  ============================================
-echo  This REGISTERS the CPU/GPU app shell on your Modal account.
-echo  It does NOT keep containers running. Idle = 0 CPU, 0 GPU.
-echo  Closing npm run dev does not delete the deploy.
+echo  Registers the CPU/GPU app shell on your Modal account.
+echo  Idle = 0 CPU, 0 GPU. Closing npm run dev does not undeploy.
+echo  No browser. token-id + token-secret are enough
+echo  (same pair you paste into Connect this session).
 echo.
 
 where uv >nul 2>&1
@@ -38,22 +39,45 @@ echo [2/4] Installing modal[api-proxy-support] into .venv-modal...
 uv pip install --python ".venv-modal\Scripts\python.exe" -r "modal\requirements.txt"
 if errorlevel 1 goto :fail
 
-echo [3/4] Log in to Modal (browser window). Already logged in? This is a no-op.
-".venv-modal\Scripts\python.exe" -m modal setup
-if errorlevel 1 (
-    echo setup returned an error. You can also run:
-    echo   .venv-modal\Scripts\python.exe -m modal token new
-    pause
+if not "%~1"=="" set "MODAL_TOKEN_LINE=%*"
+
+if defined MODAL_TOKEN_ID if defined MODAL_TOKEN_SECRET goto :deploy
+
+if not defined MODAL_TOKEN_LINE (
+    echo [3/4] Paste the CLI line you already have, then press Enter.
+    echo       modal token set --token-id ak-... --token-secret as-...
+    echo       ^(or set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET before running^)
+    set /p MODAL_TOKEN_LINE=
+)
+if not defined MODAL_TOKEN_LINE (
+    echo [ERROR] No token line. The pair is required; this script does not open a browser.
+    goto :fail
 )
 
-echo [4/4] modal deploy modal/app.py  ^(registers the shell; containers stay at 0^)
+for /f "usebackq tokens=1,* delims==" %%A in (`".venv-modal\Scripts\python.exe" "scripts\parse_modal_token_line.py"`) do (
+    set "%%A=%%B"
+)
+set "MODAL_TOKEN_LINE="
+
+if not defined MODAL_TOKEN_ID goto :badpair
+if not defined MODAL_TOKEN_SECRET goto :badpair
+goto :deploy
+
+:badpair
+echo [ERROR] Could not parse token-id / token-secret from that line.
+echo         Paste: modal token set --token-id ak-... --token-secret as-...
+goto :fail
+
+:deploy
+echo [4/4] python -m modal deploy modal/app.py
+echo       (registers the shell; containers stay at 0)
 ".venv-modal\Scripts\python.exe" -m modal deploy modal\app.py
 if errorlevel 1 goto :fail
 
 echo.
 echo Done. The empty shell is on Modal.
 echo Next: npm run dev  →  Settings → Connect this session
-echo        ^(same Modal account / tokens^)
+echo        ^(paste the same token pair; no second login^)
 echo Closing the Electron window does not undeploy. GPU drops in ~2s on quit;
 echo leftover CPU scales to 0 in a few seconds.
 echo.
@@ -63,5 +87,6 @@ exit /b 0
 :fail
 echo.
 echo Deploy failed. Fix the error above and run this script again.
+echo This script never opens a browser. Use the token pair only.
 pause
 exit /b 1

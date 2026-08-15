@@ -2,14 +2,15 @@
  * Probe the constructed .modal.run URL and, if Modal says the function
  * does not exist, deploy modal/app.py with the session CLI tokens.
  *
- * Connect previously only built the hostname. 8765 /health is local and
- * never wakes Modal, so a missing fastapi_app looked like a successful
- * login until catalog returned `modal-http: invalid function call`.
+ * Deploy is Python-only: uv creates .venv-modal, then
+ * `python.exe -m modal deploy` with MODAL_TOKEN_ID / MODAL_TOKEN_SECRET.
+ * There is no JS `modal deploy`. Never spawn `modal.cmd` (Windows EINVAL).
+ * Never run `modal setup` / browser login — the pasted token pair is enough.
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, readdirSync } from 'node:fs'
+import { delimiter, dirname, join } from 'node:path'
 import { normalizeRemoteApiUrl, redactModalSecrets } from '../../src/shared/modalSession'
 
 export type AsgiProbeKind = 'ok' | 'not-deployed' | 'unreachable'
@@ -35,6 +36,16 @@ export type EnsureAsgiDeps = {
 
 const NOT_DEPLOYED_HINT =
   'This Modal workspace has no live modly-backend CPU app (modal-http: invalid function call).'
+
+const DEPLOY_TIMEOUT_MS = 12 * 60_000
+const UV_VENV_TIMEOUT_MS = 2 * 60_000
+const UV_PIP_TIMEOUT_MS = 5 * 60_000
+
+export const UV_MISSING_HELP =
+  'uv is not installed (needed to create .venv-modal). Install https://docs.astral.sh/uv/ then Connect again, or double-click scripts\\deploy-modal.bat and paste the same token pair. No browser login — token-id + token-secret are enough.'
+
+export const CLI_MISSING_HELP =
+  'Could not run python -m modal deploy. Install uv, then Connect again so the app can create .venv-modal and install modal[api-proxy-support]. Or double-click scripts\\deploy-modal.bat and paste the same token pair (no browser).'
 
 export function classifyModalAsgiResponse(status: number, body: string): AsgiProbeKind {
   const text = body || ''
@@ -83,9 +94,62 @@ export function findModalAppPy(cwd = process.cwd(), extraRoots: string[] = []): 
   return null
 }
 
-const DEPLOY_TIMEOUT_MS = 12 * 60_000
-const CLI_MISSING_HELP =
-  'modal CLI not found. In the repo folder run: pip install modal && modal deploy modal/app.py  then Connect again (or paste the printed https://…modal.run URL).'
+export function modalVenvPython(repoRoot: string): string {
+  return process.platform === 'win32'
+    ? join(repoRoot, '.venv-modal', 'Scripts', 'python.exe')
+    : join(repoRoot, '.venv-modal', 'bin', 'python')
+}
+
+export function findUvExecutable(
+  hints: string[] = [],
+  exists: (path: string) => boolean = existsSync,
+): string | null {
+  for (const hint of hints) {
+    if (hint && exists(hint)) return hint
+  }
+  const names = process.platform === 'win32' ? ['uv.exe', 'uv'] : ['uv']
+  const home = process.env.USERPROFILE || process.env.HOME || ''
+  const localApp = process.env.LOCALAPPDATA || ''
+  const extras = process.platform === 'win32'
+    ? [
+        join(home, '.local', 'bin'),
+        join(home, '.cargo', 'bin'),
+        localApp ? join(localApp, 'Microsoft', 'WinGet', 'Links') : '',
+        localApp ? join(localApp, 'Programs', 'uv') : '',
+      ]
+    : [join(home, '.local', 'bin'), join(home, '.cargo', 'bin')]
+  const dirs = [
+    ...(process.env.PATH || '').split(delimiter),
+    ...extras,
+  ]
+  for (const dir of dirs) {
+    if (!dir) continue
+    for (const name of names) {
+      const candidate = join(dir, name)
+      if (exists(candidate)) return candidate
+    }
+  }
+  return null
+}
+
+export function modalPackageInstalled(
+  pythonPath: string,
+  exists: (path: string) => boolean = existsSync,
+): boolean {
+  const scriptsDir = dirname(pythonPath)
+  const venv = dirname(scriptsDir)
+  if (exists(join(venv, 'Lib', 'site-packages', 'modal'))) return true
+  if (exists(join(scriptsDir, 'modal.exe')) || exists(join(scriptsDir, 'modal'))) return true
+  const lib = join(venv, 'lib')
+  try {
+    for (const name of readdirSync(lib)) {
+      if (exists(join(lib, name, 'site-packages', 'modal'))) return true
+    }
+  } catch {
+    /* no lib/ yet */
+  }
+  return false
+}
 
 export function decodeSpawnChunk(buf: Buffer | string): string {
   if (typeof buf === 'string') return buf
@@ -105,12 +169,19 @@ export function decodeSpawnChunk(buf: Buffer | string): string {
 }
 
 export function isMissingCommandOutput(text: string, command = 'modal'): boolean {
-  if (/not recognized|is not recognized|not found|command not found|ENOENT/i.test(text)) return true
+  if (/not recognized|is not recognized|not found|command not found|ENOENT|EINVAL/i.test(text)) return true
   if (/不是内部或外部命令|不是可运行的程序|无法识别|不是内部或外部/.test(text)) return true
   const stripped = text.replace(/\uFFFD/g, '').trim()
   if (new RegExp(`^['"]${command}['"]\\s*$`).test(stripped)) return true
   if (text.includes('\uFFFD') && new RegExp(`['"]${command}['"]`).test(text)) return true
   return false
+}
+
+export function isUnusableSpawnError(err: unknown): boolean {
+  const e = err as NodeJS.ErrnoException
+  if (e?.code === 'ENOENT' || e?.code === 'EINVAL') return true
+  const msg = e?.message || String(err)
+  return /\bEINVAL\b|\bENOENT\b/.test(msg)
 }
 
 export function sanitizeDeployDetail(text: string): string {
@@ -126,55 +197,142 @@ export function sanitizeDeployDetail(text: string): string {
   return cleaned.slice(-800)
 }
 
-export function modalDeployAttempts(pythonHints: string[] = []): Array<{ cmd: string; args: string[] }> {
+/** Real python executables only. Never `modal.cmd` — Electron spawn EINVAL on Windows. */
+export function modalDeployAttempts(pythonBins: string[] = []): Array<{ cmd: string; args: string[] }> {
   const attempts: Array<{ cmd: string; args: string[] }> = []
   const seen = new Set<string>()
-  const push = (cmd: string, args: string[]) => {
-    const key = `${cmd} ${args.join(' ')}`
-    if (seen.has(key)) return
+  for (const py of pythonBins) {
+    if (!py) continue
+    const base = py.replace(/\\/g, '/').split('/').pop() ?? py
+    if (/^modal(\.cmd|\.exe)?$/i.test(base)) continue
+    const args = /^py(\.exe)?$/i.test(base)
+      ? ['-3', '-m', 'modal', 'deploy', 'modal/app.py']
+      : ['-m', 'modal', 'deploy', 'modal/app.py']
+    const key = `${py} ${args.join(' ')}`
+    if (seen.has(key)) continue
     seen.add(key)
-    attempts.push({ cmd, args })
-  }
-
-  for (const py of pythonHints) {
-    if (!py) continue
-    const dir = dirname(py)
-    for (const name of ['modal.exe', 'modal.cmd', 'modal']) {
-      const bin = join(dir, name)
-      if (existsSync(bin)) push(bin, ['deploy', 'modal/app.py'])
-    }
-  }
-
-  if (process.platform === 'win32') {
-    push('modal.cmd', ['deploy', 'modal/app.py'])
-    push('modal.exe', ['deploy', 'modal/app.py'])
-  }
-  push('modal', ['deploy', 'modal/app.py'])
-
-  const pythons = [
-    ...pythonHints,
-    process.platform === 'win32' ? 'python' : 'python3',
-    'python',
-    'python3',
-    ...(process.platform === 'win32' ? ['py'] : []),
-  ]
-  for (const py of pythons) {
-    if (!py) continue
-    if (py === 'py') push('py', ['-3', '-m', 'modal', 'deploy', 'modal/app.py'])
-    else push(py, ['-m', 'modal', 'deploy', 'modal/app.py'])
+    attempts.push({ cmd: py, args })
   }
   return attempts
 }
 
-export function deployModalApp(opts: {
+type RunCapturedOpts = {
+  cwd: string
+  timeoutMs: number
+  env?: NodeJS.ProcessEnv
+}
+
+export function runCaptured(
+  spawnImpl: typeof spawn,
+  cmd: string,
+  args: string[],
+  opts: RunCapturedOpts,
+): Promise<{ ok: boolean; detail: string }> {
+  return new Promise((resolve) => {
+    let child: ChildProcess
+    try {
+      child = spawnImpl(cmd, args, {
+        cwd: opts.cwd,
+        env: opts.env ?? process.env,
+        windowsHide: true,
+      })
+    } catch (err) {
+      resolve({
+        ok: false,
+        detail: sanitizeDeployDetail(err instanceof Error ? err.message : String(err)),
+      })
+      return
+    }
+    const chunks: string[] = []
+    const take = (buf: Buffer | string) => {
+      chunks.push(decodeSpawnChunk(buf))
+    }
+    child.stdout?.on('data', take)
+    child.stderr?.on('data', take)
+    const timer = setTimeout(() => {
+      try { child.kill() } catch { /* already gone */ }
+      resolve({ ok: false, detail: `${cmd} timed out` })
+    }, opts.timeoutMs)
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      resolve({ ok: false, detail: sanitizeDeployDetail(err.message) })
+    })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      const raw = chunks.join('')
+      if (code === 0) {
+        resolve({ ok: true, detail: raw })
+        return
+      }
+      resolve({ ok: false, detail: sanitizeDeployDetail(raw) || `${cmd} exited ${code}` })
+    })
+  })
+}
+
+export async function ensureModalCliPython(opts: {
+  repoRoot: string
+  spawnImpl?: typeof spawn
+  uvHints?: string[]
+  existsSyncImpl?: (path: string) => boolean
+}): Promise<{ ok: true; python: string } | { ok: false; detail: string }> {
+  const exists = opts.existsSyncImpl ?? existsSync
+  const python = modalVenvPython(opts.repoRoot)
+  const needVenv = !exists(python)
+  const needPip = needVenv || !modalPackageInstalled(python, exists)
+  if (!needVenv && !needPip) return { ok: true, python }
+
+  const uv = findUvExecutable(opts.uvHints, exists)
+  if (!uv) return { ok: false, detail: UV_MISSING_HELP }
+
+  const spawnImpl = opts.spawnImpl ?? spawn
+  if (needVenv) {
+    const created = await runCaptured(spawnImpl, uv, ['venv', '.venv-modal'], {
+      cwd: opts.repoRoot,
+      timeoutMs: UV_VENV_TIMEOUT_MS,
+    })
+    if (!created.ok) return { ok: false, detail: created.detail }
+    if (!exists(python)) {
+      return { ok: false, detail: `uv venv finished but ${python} is missing.` }
+    }
+  }
+
+  if (needPip) {
+    const installed = await runCaptured(
+      spawnImpl,
+      uv,
+      ['pip', 'install', '--python', python, '-r', 'modal/requirements.txt'],
+      { cwd: opts.repoRoot, timeoutMs: UV_PIP_TIMEOUT_MS },
+    )
+    if (!installed.ok) return { ok: false, detail: installed.detail }
+  }
+
+  return { ok: true, python }
+}
+
+export async function deployModalApp(opts: {
   tokenId: string
   tokenSecret: string
   appPy: string
   pythonHints?: string[]
+  uvHints?: string[]
   spawnImpl?: typeof spawn
+  existsSyncImpl?: (path: string) => boolean
 }): Promise<{ ok: boolean; detail: string }> {
   const repoRoot = dirname(dirname(opts.appPy))
-  const attempts = modalDeployAttempts(opts.pythonHints ?? [])
+  let pythons = (opts.pythonHints ?? []).filter(Boolean)
+  if (pythons.length === 0) {
+    const ensured = await ensureModalCliPython({
+      repoRoot,
+      spawnImpl: opts.spawnImpl,
+      uvHints: opts.uvHints,
+      existsSyncImpl: opts.existsSyncImpl,
+    })
+    if (!ensured.ok) return { ok: false, detail: ensured.detail }
+    pythons = [ensured.python]
+  }
+
+  const attempts = modalDeployAttempts(pythons)
+  const spawnImpl = opts.spawnImpl ?? spawn
 
   const run = (index: number): Promise<{ ok: boolean; detail: string }> => {
     const attempt = attempts[index]
@@ -182,15 +340,25 @@ export function deployModalApp(opts: {
       return Promise.resolve({ ok: false, detail: CLI_MISSING_HELP })
     }
     return new Promise((resolve) => {
-      const child: ChildProcess = (opts.spawnImpl ?? spawn)(attempt.cmd, attempt.args, {
-        cwd: repoRoot,
-        env: {
-          ...process.env,
-          MODAL_TOKEN_ID: opts.tokenId,
-          MODAL_TOKEN_SECRET: opts.tokenSecret,
-        },
-        windowsHide: true,
-      })
+      let child: ChildProcess
+      try {
+        child = spawnImpl(attempt.cmd, attempt.args, {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            MODAL_TOKEN_ID: opts.tokenId,
+            MODAL_TOKEN_SECRET: opts.tokenSecret,
+          },
+          windowsHide: true,
+        })
+      } catch (err) {
+        if (isUnusableSpawnError(err)) {
+          void run(index + 1).then(resolve)
+          return
+        }
+        resolve({ ok: false, detail: sanitizeDeployDetail(err instanceof Error ? err.message : String(err)) })
+        return
+      }
       const chunks: string[] = []
       const take = (buf: Buffer | string) => {
         chunks.push(decodeSpawnChunk(buf))
@@ -203,7 +371,7 @@ export function deployModalApp(opts: {
       }, DEPLOY_TIMEOUT_MS)
       child.on('error', (err) => {
         clearTimeout(timer)
-        if (err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+        if (isUnusableSpawnError(err)) {
           void run(index + 1).then(resolve)
           return
         }
@@ -235,6 +403,7 @@ export async function ensureModalCpuAsgi(opts: {
   bearerToken?: string
   extraAppRoots?: string[]
   pythonHints?: string[]
+  uvHints?: string[]
 }, deps: EnsureAsgiDeps = {}): Promise<EnsureAsgiResult> {
   const probe = deps.probe ?? probeModalAsgi
   const first = await probe(opts.apiUrl, opts.bearerToken)
@@ -255,7 +424,7 @@ export async function ensureModalCpuAsgi(opts: {
     return {
       ok: false,
       deployed: false,
-      error: `${NOT_DEPLOYED_HINT} Paste CLI tokens so Connect can deploy, or paste the URL printed by \`modal deploy modal/app.py\`.`,
+      error: `${NOT_DEPLOYED_HINT} Paste token-id + token-secret so Connect can run python -m modal deploy (no browser).`,
     }
   }
 
@@ -264,11 +433,15 @@ export async function ensureModalCpuAsgi(opts: {
     return {
       ok: false,
       deployed: false,
-      error: `${NOT_DEPLOYED_HINT} Could not find modal/app.py next to the app. From the repo run \`modal deploy modal/app.py\`.`,
+      error: `${NOT_DEPLOYED_HINT} Could not find modal/app.py next to the app.`,
     }
   }
 
-  const deploy = deps.deploy ?? ((args) => deployModalApp({ ...args, pythonHints: opts.pythonHints }))
+  const deploy = deps.deploy ?? ((args) => deployModalApp({
+    ...args,
+    pythonHints: opts.pythonHints,
+    uvHints: opts.uvHints,
+  }))
   const deployed = await deploy({ tokenId, tokenSecret, appPy })
   if (!deployed.ok) {
     return {
@@ -290,7 +463,7 @@ export async function ensureModalCpuAsgi(opts: {
     ok: true,
     deployed: true,
     warning: second.kind === 'unreachable'
-      ? 'Deploy finished. The CPU container is still starting; Generate may need a minute.'
-      : undefined,
+      ? 'Deploy finished. The CPU container is still starting; Generate may need a minute. Idle is 0 CPU / 0 GPU.'
+      : 'Registered the empty modly-backend shell. Idle is 0 CPU / 0 GPU. Closing the app does not undeploy.',
   }
 }

@@ -3,13 +3,29 @@ import test from 'node:test'
 import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
 import {
+  CLI_MISSING_HELP,
+  UV_MISSING_HELP,
   classifyModalAsgiResponse,
   deployModalApp,
+  ensureModalCliPython,
   ensureModalCpuAsgi,
   findModalAppPy,
+  findUvExecutable,
   isMissingCommandOutput,
+  isUnusableSpawnError,
+  modalDeployAttempts,
+  modalVenvPython,
   sanitizeDeployDetail,
 } from './modal-asgi-ensure.ts'
+
+function fakeChild(onReady: (child: EventEmitter) => void) {
+  const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; kill: () => void }
+  child.stdout = new EventEmitter()
+  child.stderr = new EventEmitter()
+  child.kill = () => {}
+  queueMicrotask(() => onReady(child))
+  return child
+}
 
 test('Modal edge 404 invalid function call means the CPU ASGI is not deployed', () => {
   assert.equal(
@@ -85,34 +101,148 @@ test('Chinese Windows cmd "not a command" is treated as a missing CLI', () => {
   assert.equal(isMissingCommandOutput("'modal'\n\uFFFD\uFFFD H X", 'modal'), true)
   assert.equal(isMissingCommandOutput("'modal' is not recognized as an internal or external command", 'modal'), true)
   assert.equal(isMissingCommandOutput('App deployed in 12s', 'modal'), false)
-  assert.match(sanitizeDeployDetail("'modal'\n\uFFFD\uFFFD"), /pip install modal/)
+  assert.match(sanitizeDeployDetail("'modal'\n\uFFFD\uFFFD"), /uv/)
+  assert.equal(isUnusableSpawnError(Object.assign(new Error('spawn EINVAL'), { code: 'EINVAL' })), true)
+  assert.equal(isUnusableSpawnError(Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' })), true)
 })
 
-test('deploy falls through when the first spawn is a missing modal.exe', async () => {
+test('modalDeployAttempts is python -m only and drops modal.cmd', () => {
+  const attempts = modalDeployAttempts([
+    'C:\\repo\\.venv-modal\\Scripts\\python.exe',
+    'modal.cmd',
+    'modal.exe',
+    'modal',
+    'python',
+  ])
+  assert.deepEqual(attempts.map((a) => a.cmd), [
+    'C:\\repo\\.venv-modal\\Scripts\\python.exe',
+    'python',
+  ])
+  for (const attempt of attempts) {
+    assert.deepEqual(attempt.args.slice(-4), ['-m', 'modal', 'deploy', 'modal/app.py'])
+  }
+  assert.equal(modalDeployAttempts([]).length, 0)
+})
+
+test('deploy uses pythonHints only and never tries modal.cmd', async () => {
   const cmds: string[] = []
   const spawnImpl = ((cmd: string) => {
     cmds.push(cmd)
-    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; kill: () => void }
-    child.stdout = new EventEmitter()
-    child.stderr = new EventEmitter()
-    child.kill = () => {}
-    queueMicrotask(() => {
-      if (cmd === 'modal' || cmd === 'modal.cmd' || cmd === 'modal.exe') {
-        child.stderr.emit('data', Buffer.from("'modal' 不是内部或外部命令\n"))
-        child.emit('close', 1)
+    return fakeChild((child) => {
+      if (cmd === 'python') {
+        child.emit('close', 0)
         return
       }
-      child.emit('close', 0)
+      child.stderr.emit('data', Buffer.from('should not run\n'))
+      child.emit('close', 1)
     })
-    return child
   }) as unknown as typeof import('node:child_process').spawn
 
   const result = await deployModalApp({
     tokenId: 'ak-EXAMPLE',
     tokenSecret: 'as-EXAMPLE',
     appPy: join(process.cwd(), 'modal', 'app.py'),
+    pythonHints: ['python'],
     spawnImpl,
   })
   assert.equal(result.ok, true)
-  assert.ok(cmds.some((cmd) => cmd === 'python' || cmd === 'python3' || cmd === 'py'))
+  assert.deepEqual(cmds, ['python'])
+})
+
+test('deploy treats EINVAL like a missing command and tries the next python', async () => {
+  const cmds: string[] = []
+  const spawnImpl = ((cmd: string) => {
+    cmds.push(cmd)
+    return fakeChild((child) => {
+      if (cmd === 'broken-python') {
+        child.emit('error', Object.assign(new Error('spawn EINVAL'), { code: 'EINVAL' }))
+        return
+      }
+      child.emit('close', 0)
+    })
+  }) as unknown as typeof import('node:child_process').spawn
+
+  const result = await deployModalApp({
+    tokenId: 'ak-EXAMPLE',
+    tokenSecret: 'as-EXAMPLE',
+    appPy: join(process.cwd(), 'modal', 'app.py'),
+    pythonHints: ['broken-python', 'good-python'],
+    spawnImpl,
+  })
+  assert.equal(result.ok, true)
+  assert.deepEqual(cmds, ['broken-python', 'good-python'])
+})
+
+test('sync spawn EINVAL also falls through to the next python', async () => {
+  const cmds: string[] = []
+  const spawnImpl = ((cmd: string) => {
+    cmds.push(cmd)
+    if (cmd === 'broken-python') {
+      throw Object.assign(new Error('spawn EINVAL'), { code: 'EINVAL' })
+    }
+    return fakeChild((child) => child.emit('close', 0))
+  }) as unknown as typeof import('node:child_process').spawn
+
+  const result = await deployModalApp({
+    tokenId: 'ak-EXAMPLE',
+    tokenSecret: 'as-EXAMPLE',
+    appPy: join(process.cwd(), 'modal', 'app.py'),
+    pythonHints: ['broken-python', 'good-python'],
+    spawnImpl,
+  })
+  assert.equal(result.ok, true)
+  assert.deepEqual(cmds, ['broken-python', 'good-python'])
+})
+
+test('ensureModalCliPython runs uv venv then uv pip when the venv is missing', async () => {
+  const files = new Set<string>(['/bin/uv'])
+  const python = modalVenvPython('/repo')
+  const cmds: string[][] = []
+  const spawnImpl = ((cmd: string, args: string[]) => {
+    cmds.push([cmd, ...args])
+    return fakeChild((child) => {
+      if (args[0] === 'venv') files.add(python)
+      child.emit('close', 0)
+    })
+  }) as unknown as typeof import('node:child_process').spawn
+
+  const result = await ensureModalCliPython({
+    repoRoot: '/repo',
+    spawnImpl,
+    uvHints: ['/bin/uv'],
+    existsSyncImpl: (path) => files.has(path),
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.ok && result.python, python)
+  assert.ok(cmds.some((c) => c[0] === '/bin/uv' && c[1] === 'venv'))
+  assert.ok(cmds.some((c) => c[0] === '/bin/uv' && c[1] === 'pip'))
+})
+
+test('ensureModalCliPython fails closed when uv is missing', async () => {
+  const result = await ensureModalCliPython({
+    repoRoot: '/repo',
+    uvHints: [],
+    existsSyncImpl: () => false,
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.ok === false && result.detail, UV_MISSING_HELP)
+  assert.match(CLI_MISSING_HELP, /python -m modal deploy/)
+})
+
+test('findUvExecutable prefers an explicit hint that exists', () => {
+  assert.equal(findUvExecutable(['/opt/uv'], (path) => path === '/opt/uv'), '/opt/uv')
+  assert.equal(findUvExecutable([], () => false), null)
+})
+
+test('parse_modal_token_line.py prints env assignments from the CLI line', async () => {
+  const { spawnSync } = await import('node:child_process')
+  const script = join(process.cwd(), 'scripts', 'parse_modal_token_line.py')
+  const r = spawnSync(
+    process.platform === 'win32' ? 'python' : 'python3',
+    [script, 'modal token set --token-id ak-EXAMPLE --token-secret as-EXAMPLE'],
+    { encoding: 'utf8' },
+  )
+  assert.equal(r.status, 0, r.stderr)
+  assert.match(r.stdout, /MODAL_TOKEN_ID=ak-EXAMPLE/)
+  assert.match(r.stdout, /MODAL_TOKEN_SECRET=as-EXAMPLE/)
 })
