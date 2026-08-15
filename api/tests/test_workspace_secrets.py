@@ -86,3 +86,5 @@ class WorkspaceSecretTests(unittest.TestCase):
         self.assertIn("workspace_token_secrets", app_py)
         self.assertIn("secrets=TOKEN_SECRETS", app_py)
         self.assertIn('Volume.from_name("modly-models", create_if_missing=True)', app_py)
+        self.assertIn('remote_path=API_ROOT', app_py)
+        self.assertNotIn('remote_path=str(API_ROOT)', app_py)
