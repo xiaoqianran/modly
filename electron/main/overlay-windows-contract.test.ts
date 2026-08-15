@@ -314,6 +314,10 @@ test('CPU image installs GLVND OpenGL so pymeshlab plugins can load', () => {
   assert.match(app, /libopengl0/)
 })
 
+test('Modal requirements include Pillow so TRELLIS generator.py can import', () => {
+  assert.match(readRepo('api/requirements.txt'), /pillow/i)
+})
+
 test('Modal GPU stages Volume venvs onto local disk before load', () => {
   const staging = readRepo('api/services/modal_ext_venv.py')
   const ext = readRepo('api/services/extension_process.py')

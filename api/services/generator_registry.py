@@ -124,14 +124,14 @@ def _discover_extensions() -> Dict[str, Tuple[type, dict]]:
 
             nodes = [n for n in manifest.get("nodes", []) if n.get("id")]
 
-            # Subprocess when a venv exists OR the tree ships build_vendor.py.
-            # Official TRELLIS already has vendor/, so the old
-            # `(build_vendor and not vendor)` check fell through to a direct
-            # `from PIL import Image` in the Modal image (no Pillow). The
-            # whole extension was dropped and POST /generate 400'd Unknown model.
+            # Subprocess when a venv exists, or setup has not built vendor/ yet.
+            # Official TRELLIS ships vendor/ and no venv: it is meant to import
+            # in the app image (`from PIL import Image`). Forcing subprocess
+            # here made Generate 400 Unknown model even after weights landed.
             has_venv         = _venv_python(ext_dir).exists()
             has_build_vendor = (ext_dir / "build_vendor.py").exists()
-            subprocess_mode  = has_venv or has_build_vendor
+            vendor_built     = (ext_dir / "vendor").exists()
+            subprocess_mode  = has_venv or (has_build_vendor and not vendor_built)
 
             load_error = ""
             cls_or_None = None

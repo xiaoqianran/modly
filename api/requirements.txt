@@ -10,6 +10,9 @@ mcp>=1.0.0
 # Mesh processing (optimize + export endpoints)
 trimesh>=4.5.0
 pymeshlab>=2023.12
+# Official TRELLIS generator.py does `from PIL import Image` at import.
+# Without this the Modal image drops the extension and Generate 400s Unknown model.
+pillow>=10.0.0
 
 # Model downloads (HuggingFace)
 huggingface_hub>=0.27.0
