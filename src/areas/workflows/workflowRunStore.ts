@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import axios, { AxiosInstance } from 'axios'
+import { httpErrorMessage } from '@shared/httpError'
 import { useAppStore } from '@shared/stores/appStore'
 import { getWorkflowExtension } from './mockExtensions'
 import type { WorkflowExtension } from './mockExtensions'
@@ -905,8 +906,9 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => {
         finalize(ctx)
       } catch (err) {
         if (!_cancel.current) {
-          set((s) => ({ runState: { ...s.runState, status: 'error', error: String(err) }, activeNodeId: null }))
-          useAppStore.getState().updateCurrentJob({ status: 'error', error: String(err) })
+          const message = httpErrorMessage(err)
+          set((s) => ({ runState: { ...s.runState, status: 'error', error: message }, activeNodeId: null }))
+          useAppStore.getState().updateCurrentJob({ status: 'error', error: message })
         }
       }
     },
@@ -998,7 +1000,7 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => {
         }
         finishBranch('done')
       } catch (err) {
-        finishBranch('error', String(err))
+        finishBranch('error', httpErrorMessage(err))
       }
     },
 
