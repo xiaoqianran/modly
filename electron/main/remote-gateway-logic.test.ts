@@ -14,8 +14,20 @@ test('classifies the local-path and workspace intercepts', async () => {
   assert.deepEqual(cached, { type: 'workspace-cache', rel: 'Default/mesh.glb' })
   assert.equal(classifyGatewayRequest('GET', '/optimize/serve-file?path=C:%5Cmesh.glb').type, 'serve-local-file')
   assert.equal(classifyGatewayRequest('POST', '/generate/from-image').type, 'proxy')
-  assert.equal(classifyGatewayRequest('GET', '/health').type, 'proxy')
-  assert.equal(classifyGatewayRequest('GET', '/model/all').type, 'proxy')
+  assert.equal(classifyGatewayRequest('GET', '/health').type, 'local-health')
+  assert.equal(classifyGatewayRequest('GET', '/model/all').type, 'cache-get')
+  assert.equal(classifyGatewayRequest('GET', '/extensions/catalog').type, 'cache-get')
+})
+
+test('short GET cache expires and invalidates', async () => {
+  const { ShortGetCache } = await load()
+  const cache = new ShortGetCache(50)
+  cache.set('/model/all', { statusCode: 200, contentType: 'application/json', body: Buffer.from('[]') }, 1000)
+  assert.equal(cache.get('/model/all', 1010)?.statusCode, 200)
+  assert.equal(cache.get('/model/all', 1060), null)
+  cache.set('/model/all', { statusCode: 200, contentType: 'application/json', body: Buffer.from('[]') }, 2000)
+  cache.invalidate()
+  assert.equal(cache.get('/model/all', 2001), null)
 })
 
 test('new upstream routes default to transparent proxy', async () => {

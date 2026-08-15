@@ -22,3 +22,7 @@ So “almost never edit on merge” is not a hope. It matches how they ship:
 
 Our intercept plane is those three facts. Do not put Modal branches back
 into `ipc-handlers.ts` — that file is where upstream conflicts live.
+
+Idle / cost changes (local `/health`, short catalog cache, scale-to-zero)
+live in the overlay (`remote-gateway.ts`, `modal/app.py`), not in React.
+See [`docs/modal-cost.md`](modal-cost.md).

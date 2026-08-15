@@ -2,6 +2,8 @@
 
 > 配套 ADR：[`arch/decisions/MODAL-REMOTE-BACKEND.md`](../arch/decisions/MODAL-REMOTE-BACKEND.md)
 >
+> **计费：`modal deploy` 不是 24h 开机。** 空闲缩到 0、本机 `/health`、CPU hydrate —— 见 [`docs/modal-cost.md`](modal-cost.md)。
+>
 > **上游更新能不能几乎不用改？能，前提是走 overlay，而不是改 Generate / `useApi` / Models 页。**
 >
 > 前端永远以为后端是 `http://127.0.0.1:8765`。Remote 时 Electron 在这个端口起一个网关，转发到 Modal。
@@ -164,7 +166,7 @@ GitHub tarball → 解压 → 校验 manifest → 原子替换目录 → **在�
 | `modly-workspace` | `/modly/workspace` | 生成的 GLB / splat |
 | `modly-extensions` | `/modly/extensions` | 官方模型插件源码 + venv |
 
-GPU 选择：先 `gpu=["L40S", "L4", "A100"]` 自动降级。Hunyuan / TRELLIS 优先 L40S（48 GB）。`min_containers=0`，冷启动不可接受再加 1。
+GPU 选择：默认 **只有 L40S**。Modal 把 GPU tuple 当成静默 fallback，所以不要写 `["L40S","L4","A100"]`。贵卡必须 `MODLY_GPU=A100`。空闲：CPU ASGI **8s**、GPU **5s**，`min_containers=0`，`buffer_containers=0`。详见 [`docs/modal-cost.md`](modal-cost.md)。
 
 `api/requirements.txt` 只装 FastAPI / trimesh / huggingface_hub。**Torch 继续待在每个 extension 的 venv 里**，不要打进 ASGI 镜像。
 
@@ -180,14 +182,13 @@ GPU 选择：先 `gpu=["L40S", "L4", "A100"]` 自动降级。Hunyuan / TRELLIS �
 # 只在你自己的机器上。必须带 api-proxy-support，本机 HTTPS_PROXY / ALL_PROXY 才能走到 api.modal.com
 pip install -r modal/requirements.txt   # 即 pip install 'modal[api-proxy-support]'
 modal token set          # 不要把 token 发给任何人
-modal serve modal/app.py # 临时 URL，打 GET /health
 modal deploy modal/app.py
+# 不要用 modal serve 当生产：会钉住容器，也没有持久 snapshot
 ```
 
 不要把 `modal[api-proxy-support]` 打进云端 Image。那是 **本机 CLI** 的 extra，不是 FastAPI 依赖。
 
-验收：浏览器打开 `https://<workspace>--modly-backend-fastapi-app.modal.run/health` 返回 `{"status":"ok"}`。
-这一阶段 **不改前端**，证明 Image + Volume 挂载能起来。
+验收：`modal deploy` 之后容器是 0。桌面 remote 模式启动时 `GET http://127.0.0.1:8765/health` 由网关本地回答，**不叫醒** Modal。需要确认公网 stub 时再 curl `.modal.run/health`（这会唤醒 CPU 几秒）。
 
 ### Phase 1 — Overlay（已落地，前端几乎不改）
 
@@ -209,12 +210,12 @@ modal deploy modal/app.py
 ### Phase 2 — 官方模型预装 + 目录 API（已接线）
 
 ```bash
-modal run modal/app.py::setup_official_extensions
+modal run modal/app.py::bake_official_extensions
 ```
 
 ### Phase 2 notes — 官方模型预装 + 目录 API
 
-- 写一个 Modal `setup_official_extensions`：clone 官方 Hunyuan / TRELLIS repo 到 extensions Volume，在 GPU 容器里跑它们的 `setup.py`。
+- 写一个 Modal `bake_official_extensions`：CPU clone 官方 Hunyuan / TRELLIS repo 到 extensions Volume，CPU `snapshot_download` 权重，**只有** `setup.py` 在 GPU 上跑。
 - FastAPI 增加 `GET /extensions/catalog`（已有）。把官方 Hunyuan / TRELLIS 预装进 Volume 后，现有 `extensions:list` shim 会自动列出它们。
 - **不要改** `extensionsStore` / `ModelsPage`。`isDownloaded` 已经走 `GET /model/all`；Download 的 SSE 已经打 `127.0.0.1:8765`，网关会转到 Modal。
 
@@ -266,8 +267,8 @@ modal run modal/app.py::setup_official_extensions
 
 ## 6. 验收清单
 
-- [ ] `modal serve modal/app.py` 的 `/health` 为 200
-- [ ] Remote 模式启动 **零** 本地 `uvicorn` 进程
+- [ ] `modal deploy modal/app.py` 之后空闲容器为 0；不要靠 `modal serve` 保活
+- [ ] Remote 模式启动 **零** 本地 `uvicorn` 进程，且启动时的 `/health` **不** 打到 Modal
 - [ ] `appStore.apiUrl` 仍是 `http://127.0.0.1:8765`，网关把请求转到 Modal
 - [ ] Models 页的“已下载”来自 `GET /model/all`，不是本机文件夹
 - [ ] 生成一张图，Viewer 能加载 `https://…/workspace/…glb`
