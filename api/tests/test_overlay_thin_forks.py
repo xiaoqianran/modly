@@ -39,6 +39,7 @@ class ThinForkContractTests(unittest.TestCase):
         self.assertNotIn("modal_runtime", model)
         self.assertIn("overlay_hooks", model)
         self.assertIn("after_hf_download", model)
+        self.assertIn("after_unload_all", model)
 
     def test_generation_and_workflow_only_import_the_overlay_facade(self) -> None:
         generation = read("routers", "generation.py")
@@ -89,3 +90,12 @@ class OverlayHookTests(unittest.TestCase):
         with patch("services.modal_runtime.commit_volume") as commit:
             after_hf_download()
         commit.assert_called_once_with("modly-models")
+
+    def test_after_unload_all_drops_the_gpu_pool(self) -> None:
+        from unittest.mock import patch
+
+        from services.overlay_hooks import after_unload_all
+
+        with patch("services.modal_runtime.release_gpu_pool") as release:
+            after_unload_all()
+        release.assert_called_once_with()

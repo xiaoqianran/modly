@@ -36,6 +36,9 @@ Thumbs.db
 # Local CodeGraph index
 .codegraph/
 
+# Laptop-only Modal CLI venv (scripts/deploy-modal.bat)
+.venv-modal/
+
 # Env
 .env
 .env.local
