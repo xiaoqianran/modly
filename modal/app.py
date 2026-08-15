@@ -96,7 +96,10 @@ VOLUMES = {
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("git", "libgl1", "libglib2.0-0")
+    # libgl1 → libGL.so.1. PyMeshLab Qt plugins link libOpenGL.so.0 (GLVND),
+    # which is libopengl0. Without it every CPU cold start dumps
+    # "does not seem to be a Qt Plugin" and remesh/smooth cannot load io_base.
+    .apt_install("git", "libgl1", "libopengl0", "libglib2.0-0")
     .pip_install_from_requirements(str(REPO_API / "requirements.txt"))
     .env(
         {

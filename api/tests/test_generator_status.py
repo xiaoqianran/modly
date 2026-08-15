@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -158,3 +159,12 @@ class StatusOnlyDiscoverTests(unittest.TestCase):
                 registry.get_generator(model_id)
             self.assertIn("PIL", str(ctx.exception))
             self.assertTrue(registry._generators[model_id].is_downloaded())
+
+
+class SelectedModelIdTests(unittest.TestCase):
+    def test_blank_env_is_empty_not_sf3d(self) -> None:
+        with patch.dict(os.environ, {"SELECTED_MODEL_ID": ""}, clear=False):
+            self.assertEqual(GeneratorRegistry()._active_id, "")
+        env = {key: value for key, value in os.environ.items() if key != "SELECTED_MODEL_ID"}
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(GeneratorRegistry()._active_id, "")

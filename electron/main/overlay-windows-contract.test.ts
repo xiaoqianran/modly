@@ -308,6 +308,12 @@ test('Settings shows live remote runs without going through useApi', () => {
   assert.equal(readRepo('src/areas/generate/GeneratePage.tsx').includes('/runs'), false)
 })
 
+test('CPU image installs GLVND OpenGL so pymeshlab plugins can load', () => {
+  const app = readRepo('modal/app.py')
+  assert.match(app, /libgl1/)
+  assert.match(app, /libopengl0/)
+})
+
 test('Modal GPU stages Volume venvs onto local disk before load', () => {
   const staging = readRepo('api/services/modal_ext_venv.py')
   const ext = readRepo('api/services/extension_process.py')

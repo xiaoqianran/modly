@@ -207,7 +207,7 @@ class GeneratorRegistry:
         self._generators: Dict[str, BaseGenerator] = {}
         self._manifests:  Dict[str, dict]          = {}
         self._errors:     Dict[str, str]           = {}
-        self._active_id:  str = os.environ.get("SELECTED_MODEL_ID", "sf3d")
+        self._active_id:  str = (os.environ.get("SELECTED_MODEL_ID") or "").strip()
 
     def initialize(self) -> None:
         """Discovers and instantiates all extensions. Call at startup."""
@@ -267,10 +267,11 @@ class GeneratorRegistry:
 
         if self._active_id not in self._generators:
             fallback = next(iter(self._generators))
-            print(
-                f"[Registry] WARNING: SELECTED_MODEL_ID='{self._active_id}' is unknown. "
-                f"Falling back to '{fallback}'."
-            )
+            if self._active_id:
+                print(
+                    f"[Registry] WARNING: SELECTED_MODEL_ID='{self._active_id}' is unknown. "
+                    f"Falling back to '{fallback}'."
+                )
             self._active_id = fallback
 
         print(f"[Registry] Active model  : {self._active_id}")
