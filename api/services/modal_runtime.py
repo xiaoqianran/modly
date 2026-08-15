@@ -37,6 +37,53 @@ class SpawnResult:
     error: str = ""
 
 
+def reload_volume(name: str) -> None:
+    if not is_modal_runtime():
+        return
+    try:
+        import modal
+
+        modal.Volume.from_name(name).reload()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[modal] volume reload {name} failed: {exc}")
+
+
+def weights_ready(model_id: str) -> bool:
+    """True when this model already has files on modly-models (after reload)."""
+    reload_volume("modly-models")
+    try:
+        from services.generator_registry import generator_registry
+        from services.gpu_job_steps import model_weights_ready
+
+        return model_weights_ready(generator_registry, model_id)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def spawn_prepare_and_gpu(
+    job_id: str,
+    model_id: str,
+    image_bytes: bytes,
+    params: dict[str, Any],
+    collection: str,
+) -> SpawnResult:
+    """CPU Function: HuggingFace pull, then spawn GpuGenerator. No GPU during download."""
+    if not use_gpu_worker():
+        return SpawnResult(started=False)
+    try:
+        import modal
+
+        fn = modal.Function.from_name(app_name(), "prepare_and_spawn_gpu")
+        call = fn.spawn(job_id, model_id, image_bytes, params, collection)
+        call_id = getattr(call, "object_id", None) or getattr(call, "call_id", "") or ""
+        if not call_id:
+            print("[modal] prepare spawn succeeded but FunctionCall id is empty")
+        return SpawnResult(started=True, call_id=str(call_id))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[modal] prepare_and_spawn_gpu failed: {exc}")
+        return SpawnResult(started=False, error=str(exc))
+
+
 def spawn_gpu_generation(
     job_id: str,
     model_id: str,

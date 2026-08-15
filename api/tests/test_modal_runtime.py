@@ -10,6 +10,7 @@ from services.modal_runtime import (
     reset_hydrate_spawn_for_tests,
     spawn_gpu_generation,
     spawn_hydrate_official_extensions,
+    spawn_prepare_and_gpu,
     stop_run_compute,
 )
 from services.run_store import reset_run_store_for_tests
@@ -20,6 +21,7 @@ class SpawnResultTests(unittest.TestCase):
     def test_local_spawn_is_a_no_op(self) -> None:
         result = spawn_gpu_generation("j", "m", b"img", {}, "Default")
         self.assertEqual(result, SpawnResult(started=False))
+        self.assertEqual(spawn_prepare_and_gpu("j", "m", b"img", {}, "Default"), SpawnResult(started=False))
 
     def test_cancel_without_modal_is_false(self) -> None:
         self.assertFalse(cancel_function_call("fc-1"))
@@ -40,6 +42,21 @@ class SpawnResultTests(unittest.TestCase):
             self.assertFalse(spawn_hydrate_official_extensions())
         modal_mod.Function.from_name.assert_called_once_with("modly-backend", "hydrate_official_extensions")
         fn.spawn.assert_called_once()
+
+    @patch.dict("os.environ", {"MODLY_RUNTIME": "modal", "MODLY_USE_GPU_WORKER": "1"}, clear=False)
+    def test_prepare_spawns_cpu_function_not_gpu_cls(self) -> None:
+        fn = MagicMock()
+        call = MagicMock()
+        call.object_id = "fc-cpu-1"
+        fn.spawn.return_value = call
+        modal_mod = MagicMock()
+        modal_mod.Function.from_name.return_value = fn
+        with patch.dict("sys.modules", {"modal": modal_mod}):
+            result = spawn_prepare_and_gpu("job-1", "triposg/generate", b"png", {}, "Default")
+        self.assertEqual(result, SpawnResult(started=True, call_id="fc-cpu-1"))
+        modal_mod.Function.from_name.assert_called_once_with("modly-backend", "prepare_and_spawn_gpu")
+        fn.spawn.assert_called_once()
+        modal_mod.Cls.from_name.assert_not_called()
 
 
 class CancelTests(unittest.TestCase):

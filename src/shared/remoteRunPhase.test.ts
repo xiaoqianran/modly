@@ -19,6 +19,19 @@ test('pending without spawn is accepted on CPU', () => {
   assert.equal(phase.id, 'accepted')
 })
 
+test('open cpu.hydrate is downloading, not GPU cold start', () => {
+  const phase = describeRemoteRunPhase({
+    status: 'running',
+    spawn_call_id: 'fc-cpu',
+    chain: ['desktop.8765', 'gateway', 'cpu.asgi', 'cpu.hydrate'],
+    spans: [
+      { name: 'cpu.accept', t0: 1, t1: null },
+      { name: 'cpu.hydrate', t0: 2, t1: null, detail: 'fc-cpu' },
+    ],
+  })
+  assert.equal(phase.id, 'downloading_weights')
+})
+
 test('pending with FunctionCall is GPU cold start / image pull', () => {
   const phase = describeRemoteRunPhase({
     status: 'pending',

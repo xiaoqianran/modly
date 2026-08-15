@@ -15,10 +15,13 @@ Electron UI
         │
         ▼
 CPU ASGI  api/main.py
-  open_run → spawn GpuGenerator.generate
+  open_run
+  权重不在 Volume → spawn prepare_and_spawn_gpu（CPU，HuggingFace）
+  权重已在         → spawn GpuGenerator.generate
         │                         FunctionCall.object_id 写入账本
         ▼
-GPU Cls   gpu_enter → generate → finally gpu_leave
+GPU Cls   reload Volume → load VRAM → generate → finally gpu_leave
+          （GPU 不再 snapshot_download）
         │
         ▼
 GET /generate/status  每秒            touch_poll + 超时则 cancel
@@ -74,7 +77,7 @@ Settings → Application → **Remote runs** 读同一个 `GET /runs`（不走 `
 |-------|----------------|
 | `accepted` | CPU 已接单，还没 `spawn` |
 | `starting_gpu` | 已有 `spawn_call_id`，GPU 容器在冷启动或拉镜像 |
-| `downloading_weights` | Volume 上还没有权重，正在拉模型。**不要取消**：当前已部署的版本只在出 mesh 之后才 `models_vol.commit()`，取消等于白下。 |
+| `downloading_weights` | **CPU** `prepare_and_spawn_gpu` 正在 HuggingFace 拉权重。GPU 还没启动。 |
 | `loading_model` | 权重在盘上，正在进显存 |
 | `generating` | 正在出 mesh |
 | `committing` | 写回 Volume |

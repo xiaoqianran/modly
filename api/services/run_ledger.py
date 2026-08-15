@@ -195,6 +195,7 @@ class RunRecord:
             self.status not in TERMINAL
             and self.spawn_call_id
             and opened is None
+            and "gpu.worker" in self.chain
             and (now - self.created_at) > gpu_timeout
         ):
             return {
@@ -227,6 +228,9 @@ class RunRecord:
             return {"id": "cancelled", "label": "Cancelled"}
         if self.status == "done":
             return {"id": "done", "label": "Done"}
+
+        if any(s.name == "cpu.hydrate" and s.t1 is None for s in self.spans):
+            return {"id": "downloading_weights", "label": "Downloading model weights"}
 
         latest = self.latest_gpu_step()
         low = latest.lower()

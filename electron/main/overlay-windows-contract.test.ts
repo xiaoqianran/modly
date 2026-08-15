@@ -308,6 +308,22 @@ test('Settings shows live remote runs without going through useApi', () => {
   assert.equal(readRepo('src/areas/generate/GeneratePage.tsx').includes('/runs'), false)
 })
 
+test('missing weights hydrate on CPU then spawn GPU; GPU never snapshot_download', () => {
+  const overlay = readRepo('api/services/generation_overlay.py')
+  const runtime = readRepo('api/services/modal_runtime.py')
+  const app = readRepo('modal/app.py')
+  assert.match(overlay, /spawn_prepare_and_gpu/)
+  assert.match(overlay, /weights_ready/)
+  assert.match(runtime, /prepare_and_spawn_gpu/)
+  assert.match(app, /def prepare_and_spawn_gpu/)
+  assert.match(app, /Download runs on CPU only/)
+  const generateAt = app.indexOf('def generate(')
+  const setupAt = app.indexOf('def setup_extension(')
+  assert.ok(generateAt >= 0 && setupAt > generateAt)
+  assert.equal(app.slice(generateAt, setupAt).includes('snapshot_download'), false)
+  assert.equal(app.slice(generateAt, setupAt).includes('STEP_DOWNLOADING'), false)
+})
+
 test('GET /runs is never a cache-get (live ledger must not go stale)', async () => {
   const { classifyGatewayRequest, isCacheGetPath } = await loadGateway()
   assert.equal(isCacheGetPath('/runs'), false)
