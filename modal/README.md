@@ -10,11 +10,19 @@ so upstream UI/API additions stay compatible.
 ## Deploy (on your machine only)
 
 ```bash
-pip install modal
+pip install -r modal/requirements.txt   # modal[api-proxy-support]
+# equivalent: pip install 'modal[api-proxy-support]'
 modal token set          # never paste the token into git or chat
 modal serve modal/app.py # ephemeral URL, live-reloads
 modal deploy modal/app.py
 ```
+
+`api-proxy-support` is the default local install. Plain `modal` cannot talk
+to `api.modal.com` through `HTTPS_PROXY` / `ALL_PROXY` (HTTP CONNECT or
+SOCKS4/5). Opt out with `MODAL_DISABLE_API_PROXY=1` or
+`disable_api_proxy = true` in `~/.modal.toml`.
+
+This extra is **laptop-only**. Do not add it to the FastAPI Image.
 
 Check:
 

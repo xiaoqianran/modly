@@ -54,7 +54,7 @@ and assumes the FastAPI process shares the same filesystem.
 ## What stays local
 
 - Generate page, model-parameter UI, Workflow canvas, 3D / splat viewers
-- Axios generate / poll / cancel / optimize (once `apiUrl` is remote)
+- Axios generate / poll / cancel / optimize (still `http://127.0.0.1:8765`)
 - Workflow JSON, For-Each folder walks, Image / Load-3D-Mesh file pickers
 - Built-in **process** nodes (`mesh-optimizer`, `mesh-exporter`, smoother,
   remesher, repair) — these run in Electron workers / local Python, not in
@@ -72,18 +72,27 @@ and assumes the FastAPI process shares the same filesystem.
 
 ## Target topology
 
-```
-Laptop                              Modal
-┌─────────────────────┐            ┌──────────────────────────────────┐
-│ Electron + React    │   HTTPS    │ CPU ASGI  (always the public URL)│
-│ file pickers        │ ─────────► │  FastAPI, auth, job Dict         │
-│ process nodes (CPU) │            │  /health /generate /optimize     │
-│ 3D viewer           │ ◄───────── │         │                        │
-│ workflows JSON      │    GLB     │         ▼                        │
-└─────────────────────┘            │ GPU Cls  L4 / L40S / A100        │
-                                   │  TRELLIS / Hunyuan venvs         │
-                                   │  Volumes: models, workspace, exts│
-                                   └──────────────────────────────────┘
+Local CLI install is `modal[api-proxy-support]` so `modal serve/deploy`
+can use `HTTPS_PROXY` / `ALL_PROXY`. That extra is laptop-only.
+
+```mermaid
+flowchart LR
+  subgraph laptop["Laptop"]
+    UI["React UI — still 127.0.0.1:8765"]
+    GW["overlay gateway"]
+    CLI["modal[api-proxy-support]"]
+  end
+  subgraph cloud["Modal"]
+    ASGI["CPU ASGI = api/main.py"]
+    GPU["GPU Cls"]
+    VOL["Volumes: models / workspace / exts"]
+  end
+  UI --> GW
+  GW -->|"HTTPS FastAPI URL"| ASGI
+  CLI -->|"HTTPS_PROXY → api.modal.com"| ASGI
+  ASGI --> VOL
+  ASGI -.-> GPU
+  GPU --> VOL
 ```
 
 Do **not** put the ASGI app on a GPU container. Polling `/generate/status`

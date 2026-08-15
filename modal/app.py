@@ -5,10 +5,14 @@ It does not start a GPU container and does not embed credentials.
 
 Local (on your machine, never in chat / git):
 
-    pip install modal
+    pip install -r modal/requirements.txt   # modal[api-proxy-support]
     modal token set
     modal serve modal/app.py
     modal deploy modal/app.py
+
+The extra is required so the CLI can reach api.modal.com through a local
+HTTP CONNECT / SOCKS proxy (HTTPS_PROXY, ALL_PROXY). It is *not* installed
+into the Modal Image.
 
 The public URL speaks the existing Modly HTTP contract
 (`/health`, `/generate/*`, `/model/*`, `/optimize/*`, `/workspace/*`).

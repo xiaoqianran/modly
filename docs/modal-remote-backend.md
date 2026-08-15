@@ -8,6 +8,10 @@
 > 上游新加的 HTTP 路由、新 UI、新轮询，合并进来就会自动打到云端。
 > 只有“扫本机磁盘 / 传本机绝对路径”这类新 IPC，才需要在 `ipc-handlers.ts` 加一行 shim。
 >
+> **Overlay** = 在不改 UI 的前提下，换掉 8765 端口后面的实现。图见 [`docs/upstream-compatibility.md`](upstream-compatibility.md)。
+>
+> 本机装 Modal CLI 必须用 `pip install 'modal[api-proxy-support]'`（或 `pip install -r modal/requirements.txt`），否则 `HTTPS_PROXY` / `ALL_PROXY` 走不到 `api.modal.com`。这是 CLI extra，不要打进云端 Image。
+>
 > 你画的拓扑是对的；“改 4 块就够”不够。CodeGraph 全库索引（173 files / 2,305 nodes / 5,672 edges）之后，真正要动的是 **8 个耦合面**，但它们被收进 overlay，而不是散落到 React。
 
 ---
@@ -173,12 +177,14 @@ GPU 选择：先 `gpu=["L40S", "L4", "A100"]` 自动降级。Hunyuan / TRELLIS �
 仓库里已有 `modal/app.py`：
 
 ```bash
-# 只在你自己的机器上
-pip install modal
+# 只在你自己的机器上。必须带 api-proxy-support，本机 HTTPS_PROXY / ALL_PROXY 才能走到 api.modal.com
+pip install -r modal/requirements.txt   # 即 pip install 'modal[api-proxy-support]'
 modal token set          # 不要把 token 发给任何人
 modal serve modal/app.py # 临时 URL，打 GET /health
 modal deploy modal/app.py
 ```
+
+不要把 `modal[api-proxy-support]` 打进云端 Image。那是 **本机 CLI** 的 extra，不是 FastAPI 依赖。
 
 验收：浏览器打开 `https://<workspace>--modly-backend-fastapi-app.modal.run/health` 返回 `{"status":"ok"}`。
 这一阶段 **不改前端**，证明 Image + Volume 挂载能起来。

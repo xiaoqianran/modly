@@ -1,0 +1,7 @@
+# Local Modal CLI only (your laptop). Do not pip-install this into the
+# FastAPI Image — the Image already runs *on* Modal.
+#
+# api-proxy-support lets `modal serve` / `modal deploy` reach api.modal.com
+# through a local HTTP CONNECT or SOCKS proxy (HTTPS_PROXY / ALL_PROXY).
+# Plain `pip install modal` cannot do that.
+modal[api-proxy-support]
