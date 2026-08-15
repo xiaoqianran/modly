@@ -15,6 +15,8 @@ from typing import Mapping
 DEFAULT_GPU = ("L40S",)
 DEFAULT_CPU_SCALEDOWN = 8
 DEFAULT_GPU_SCALEDOWN = 5
+# Hung generate used to sit on L40S for 3600s. 20 min is enough for Hunyuan.
+DEFAULT_GPU_TIMEOUT = 20 * 60
 
 
 def parse_gpu(raw: str) -> tuple[str, ...]:
@@ -67,6 +69,7 @@ class ModalIdleSettings:
     gpu: tuple[str, ...]
     cpu_scaledown_window: int
     gpu_scaledown_window: int
+    gpu_timeout_seconds: int
     memory_snapshot: bool
     gpu_snapshot: bool
 
@@ -90,6 +93,13 @@ class ModalIdleSettings:
                 DEFAULT_GPU_SCALEDOWN,
                 minimum=2,
                 maximum=20 * 60,
+            ),
+            gpu_timeout_seconds=env_int(
+                env,
+                "MODLY_GPU_TIMEOUT",
+                DEFAULT_GPU_TIMEOUT,
+                minimum=60,
+                maximum=60 * 60,
             ),
             memory_snapshot=memory_snapshot,
             gpu_snapshot=gpu_snapshot,

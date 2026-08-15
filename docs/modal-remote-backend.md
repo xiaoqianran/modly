@@ -2,7 +2,7 @@
 
 > 配套 ADR：[`arch/decisions/MODAL-REMOTE-BACKEND.md`](../arch/decisions/MODAL-REMOTE-BACKEND.md)
 >
-> **计费：`modal deploy` 不是 24h 开机。** 空闲缩到 0、本机 `/health`、CPU hydrate —— 见 [`docs/modal-cost.md`](modal-cost.md)。
+> **计费：`modal deploy` 不是 24h 开机。** 空闲缩到 0、本机 `/health`、CPU hydrate —— 见 [`docs/modal-cost.md`](modal-cost.md)。每一次 Generate 的调用链和估算费用 —— 见 [`docs/modal-run-ledger.md`](modal-run-ledger.md)。
 >
 > **上游更新能不能几乎不用改？能，前提是走 overlay，而不是改 Generate / `useApi` / Models 页。**
 >

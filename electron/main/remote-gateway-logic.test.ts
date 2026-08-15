@@ -17,6 +17,8 @@ test('classifies the local-path and workspace intercepts', async () => {
   assert.equal(classifyGatewayRequest('GET', '/health').type, 'local-health')
   assert.equal(classifyGatewayRequest('GET', '/model/all').type, 'cache-get')
   assert.equal(classifyGatewayRequest('GET', '/extensions/catalog').type, 'cache-get')
+  assert.equal(classifyGatewayRequest('GET', '/runs').type, 'proxy')
+  assert.equal(classifyGatewayRequest('GET', '/runs/abc').type, 'proxy')
 })
 
 test('short GET cache expires and invalidates', async () => {

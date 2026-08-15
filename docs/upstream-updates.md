@@ -4,7 +4,7 @@ Re-indexed **2026-08-15** with CodeGraph 1.5.0. Two trees, same tool:
 
 | Tree | Ref | Files | Nodes | Edges | `modal/` |
 |------|-----|------:|------:|------:|----------|
-| **This overlay** | `cursor/modal-cost-saving-d55c` @ `9b841ae` | **196** | **2,617** | **6,517** | yes |
+| **This overlay** | `cursor/modal-run-ledger-d55c` | **202** | **2,751** | **6,966** | yes |
 | **Upstream, no Modal** | `lightningpixel/modly` `dev` @ `5aed279` (2026-08-13) | **179** | **2,496** | **6,318** | **none** |
 | Upstream `main` | still `b771e29` (2026-07-25) — our fork point | — | — | — | none |
 
@@ -103,7 +103,7 @@ Not “they released a new Generate button.” Only if they break one of the thr
 2. **A new host-absolute path POST** (another `import-by-path`). Add one classifier in `remote-gateway-logic.ts`.
 3. **A new disk-scan IPC that must stay on the laptop** but uses a `model:` / `extensions:` name we currently `replace` or `forward-unknown`. Add one line to `ipc-policy.ts`.
 
-Idle / cost changes stay in `remote-gateway.ts` and `modal/app.py`. See [`docs/modal-cost.md`](modal-cost.md).
+Idle / cost changes stay in `remote-gateway.ts` and `modal/app.py`. Per-run chain + USD ledger is overlay-only (`api/services/run_*.py`, `GET /runs`). See [`docs/modal-cost.md`](modal-cost.md) and [`docs/modal-run-ledger.md`](modal-run-ledger.md).
 
 ---
 

@@ -20,6 +20,7 @@ export const LOCAL_HEALTH_BODY = { status: 'ok' }
 /** Short TTL so Models-page bursts collapse into one Modal GET. */
 export const CACHE_GET_TTL_MS = 8_000
 
+/** Catalog only. `/runs` is a live ledger — never add it here. */
 const CACHE_GET_PATHS = new Set([
   '/model/all',
   '/model/status',

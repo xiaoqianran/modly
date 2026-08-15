@@ -163,5 +163,19 @@ modal serve modal/app.py   # 用完 Ctrl-C
 | `MODLY_GPU_SCALEDOWN` | `5` | GPU 空闲秒 |
 | `MODLY_MEMORY_SNAPSHOT` | `1` | deploy 后给 GpuGenerator 拍内存快照 |
 | `MODLY_GPU_SNAPSHOT` | `0` | 实验性 GPU 快照；没在 enter() 里 load 模型就别开 |
+| `MODLY_GPU_TIMEOUT` | `1200` | GPU `generate` 函数超时（秒）。卡住就杀，不再空转 1 小时 |
 
 冷启动（第一次 Generate 当天）仍可能要几十秒：snapshot restore + 扩展 venv + 把权重 load 进显存。这是**付一次**，不是包月。觉得冷启动不可接受再考虑 `min_containers=1`——那才是“一直 deploy 着一台机器”。
+
+---
+
+## 8. 跑一次就要能对账
+
+报错、取消、或跑完容器没缩，都会让 GPU / CPU 继续占着。每一次 Generate 的调用链、时间轴、估算 USD 记在账本里：[`docs/modal-run-ledger.md`](modal-run-ledger.md)。
+
+```bash
+curl -s http://127.0.0.1:8765/runs
+modal run modal/app.py::dump_recent_runs
+```
+
+取消和超时会 `FunctionCall.cancel(terminate_containers=True)`。Modal 上 spawn 失败**不会**回退到 CPU ASGI 里跑推理。
