@@ -207,7 +207,7 @@ export class PythonBridge {
       token,
       workspaceDir: this.resolveWorkspaceDir(),
     })
-    await this.waitUntilReady({ requireProcess: false, delayMs: 1000 })
+    await this.waitUntilReady({ requireProcess: false, delayMs: 200 })
   }
 
   private async waitUntilReady(
@@ -227,7 +227,9 @@ export class PythonBridge {
       try {
         await axios.get(`${API_BASE_URL}/health`, { timeout: 2000 })
         this.ready = true
-        console.log('[PythonBridge] FastAPI is ready')
+        console.log(this.gateway
+          ? '[PythonBridge] Remote gateway is ready (local /health; Modal stays scaled to 0 until generate)'
+          : '[PythonBridge] FastAPI is ready')
         return
       } catch {
         await new Promise((r) => setTimeout(r, opts.delayMs))

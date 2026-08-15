@@ -1,27 +1,30 @@
 """Modal entrypoint for the Modly FastAPI backend.
 
-This is the Phase 0 wrapper: same `api/main.py`, three Volumes, CPU ASGI.
-It does not start a GPU container and does not embed credentials.
-
-Local (on your machine, never in chat / git):
+Deploy registers the app. Containers are min=0 and scale to zero a few
+seconds after the last request. Do **not** leave `modal serve` running:
+that pins CPU (and would pin GPU if the web app lived there).
 
     pip install -r modal/requirements.txt   # modal[api-proxy-support]
     modal token set
-    modal serve modal/app.py
     modal deploy modal/app.py
+    modal run modal/app.py::bake_official_extensions
+
+Smoke with `modal deploy`, not `modal serve`. Serve has no persistent
+memory snapshot and keeps a container until you Ctrl-C.
 
 The extra is required so the CLI can reach api.modal.com through a local
 HTTP CONNECT / SOCKS proxy (HTTPS_PROXY, ALL_PROXY). It is *not* installed
 into the Modal Image.
 
-The public URL speaks the existing Modly HTTP contract
-(`/health`, `/generate/*`, `/model/*`, `/optimize/*`, `/workspace/*`).
-On Modal, jobs live in `modal.Dict` (`modly-jobs`) and generate() is
-spawned on `GpuGenerator`.
+The public URL speaks the existing Modly HTTP contract. On Modal, jobs live
+in `modal.Dict` (`modly-jobs`) and generate() is spawned on `GpuGenerator`.
+The desktop answers `/health` locally so opening the app does not wake this
+ASGI container.
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import modal
@@ -35,9 +38,20 @@ EXTENSIONS_DIR = Path("/modly/extensions")
 # Repo-relative: `modal serve modal/app.py` is launched from the repository root.
 REPO_API = Path(__file__).resolve().parent.parent / "api"
 
+sys.path.insert(0, str(REPO_API))
+from services.modal_idle import ModalIdleSettings, idle_release_kwargs  # noqa: E402
+
+IDLE = ModalIdleSettings.from_env()
+
 models_vol = modal.Volume.from_name("modly-models", create_if_missing=True)
 workspace_vol = modal.Volume.from_name("modly-workspace", create_if_missing=True)
 extensions_vol = modal.Volume.from_name("modly-extensions", create_if_missing=True)
+
+VOLUMES = {
+    str(MODELS_DIR): models_vol,
+    str(WORKSPACE_DIR): workspace_vol,
+    str(EXTENSIONS_DIR): extensions_vol,
+}
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -60,12 +74,24 @@ app = modal.App(APP_NAME, image=image)
 
 
 def _load_fastapi():
-    import sys
+    import sys as _sys
 
-    sys.path.insert(0, str(API_ROOT))
+    _sys.path.insert(0, str(API_ROOT))
     from main import app as fastapi_app  # type: ignore  # noqa: PLC0415
 
     return fastapi_app
+
+
+def _bind_runtime_env() -> None:
+    import os
+    import sys as _sys
+
+    os.environ.setdefault("MODELS_DIR", str(MODELS_DIR))
+    os.environ.setdefault("WORKSPACE_DIR", str(WORKSPACE_DIR))
+    os.environ.setdefault("EXTENSIONS_DIR", str(EXTENSIONS_DIR))
+    os.environ.setdefault("MODLY_RUNTIME", "modal")
+    os.environ.setdefault("MODLY_APP_NAME", APP_NAME)
+    _sys.path.insert(0, str(API_ROOT))
 
 
 OFFICIAL_REPOS = (
@@ -76,13 +102,9 @@ OFFICIAL_REPOS = (
 
 
 @app.function(
-    volumes={
-        str(MODELS_DIR): models_vol,
-        str(WORKSPACE_DIR): workspace_vol,
-        str(EXTENSIONS_DIR): extensions_vol,
-    },
+    volumes=VOLUMES,
     timeout=60 * 60,
-    scaledown_window=5 * 60,
+    **IDLE.cpu_function_kwargs(),
 )
 @modal.concurrent(max_inputs=20)
 @modal.asgi_app()
@@ -92,86 +114,141 @@ def fastapi_app():
 
 
 @app.function(
-    gpu=["L40S", "L4", "A100"],
-    volumes={
-        str(MODELS_DIR): models_vol,
-        str(WORKSPACE_DIR): workspace_vol,
-        str(EXTENSIONS_DIR): extensions_vol,
-    },
+    volumes=VOLUMES,
     timeout=60 * 60,
+    cpu=4.0,
+    memory=8192,
+    **IDLE.cpu_function_kwargs(),
+)
+def hydrate_official_extensions():
+    """CPU: clone official model extensions onto the Volume. No CUDA."""
+    _bind_runtime_env()
+    installed = _clone_official_extensions()
+    extensions_vol.commit()
+    return {"cloned": installed, "next": "modal run modal/app.py::setup_official_extensions"}
+
+
+@app.function(
+    volumes=VOLUMES,
+    timeout=6 * 60 * 60,
+    cpu=8.0,
+    memory=16384,
+    **IDLE.cpu_function_kwargs(),
+)
+def hydrate_official_models():
+    """CPU: HuggingFace snapshot_download onto modly-models. Do not do this on GPU."""
+    _bind_runtime_env()
+    downloaded: list[str] = []
+    skipped: list[str] = []
+    from huggingface_hub import snapshot_download  # noqa: PLC0415
+    from services.modal_hydrate import SNAPSHOT_IGNORE, hf_targets_from_extensions  # noqa: PLC0415
+
+    # Read manifests directly so this works before setup.py clears .modly-incomplete.
+    for target in hf_targets_from_extensions(EXTENSIONS_DIR, MODELS_DIR):
+        dest = Path(target["dest"])
+        if dest.exists() and any(dest.iterdir()):
+            skipped.append(target["model_id"])
+            continue
+        dest.mkdir(parents=True, exist_ok=True)
+        snapshot_download(
+            repo_id=target["hf_repo"],
+            local_dir=str(dest),
+            ignore_patterns=list(target["hf_skip_prefixes"]) + SNAPSHOT_IGNORE,
+        )
+        downloaded.append(target["model_id"])
+    models_vol.commit()
+    return {"downloaded": downloaded, "skipped": skipped}
+
+
+@app.function(
+    gpu=list(IDLE.gpu),
+    volumes=VOLUMES,
+    timeout=60 * 60,
+    **idle_release_kwargs(IDLE.gpu_scaledown_window),
 )
 def setup_official_extensions():
-    """Clone official model extensions onto the Volume and run setup.py on GPU."""
-    import os
-    import sys
+    """GPU: run each official extension's setup.py (CUDA wheels / SM)."""
+    _bind_runtime_env()
+    from services.extension_install import clear_incomplete  # noqa: PLC0415
+    from services.generator_registry import EXTENSIONS_DIR as ext_dir  # noqa: PLC0415
 
-    os.environ.setdefault("MODELS_DIR", str(MODELS_DIR))
-    os.environ.setdefault("WORKSPACE_DIR", str(WORKSPACE_DIR))
-    os.environ.setdefault("EXTENSIONS_DIR", str(EXTENSIONS_DIR))
-    os.environ.setdefault("MODLY_RUNTIME", "modal")
-    sys.path.insert(0, str(API_ROOT))
-
-    from services.extension_install import (
-        clear_incomplete,
-        download_github_tarball,
-        extract_extension,
-        parse_github_repo,
-    )
-    from services.generator_registry import EXTENSIONS_DIR as ext_dir
-
+    cloned = _clone_official_extensions() if not _official_extensions_present(ext_dir) else [
+        p.name
+        for p in ext_dir.iterdir()
+        if p.is_dir() and not p.name.startswith(".") and (p / "manifest.json").exists()
+    ]
     installed: list[str] = []
-    for url in OFFICIAL_REPOS:
-        owner, repo = parse_github_repo(url)
-        tarball = download_github_tarball(owner, repo)
-        ext_id = extract_extension(tarball, ext_dir, url)
-        _run_setup_py(ext_dir / ext_id)
+    for ext_id in cloned:
+        target = ext_dir / ext_id
+        if not target.exists():
+            continue
+        _run_setup_py(target)
         clear_incomplete(ext_dir, ext_id)
         installed.append(ext_id)
     extensions_vol.commit()
-    return {"installed": installed}
+    return {"installed": installed, "gpu": list(IDLE.gpu)}
 
 
-# ---------------------------------------------------------------------------
-# Phase 3 placeholder: GPU worker. Not wired to FastAPI yet.
-# When generation.py stops using an in-process `_jobs` dict, spawn this
-# from the CPU ASGI instead of running BaseGenerator on the web container.
-# ---------------------------------------------------------------------------
+@app.local_entrypoint()
+def bake_official_extensions():
+    """CPU clone + CPU weight hydrate + GPU setup.py. One command, GPU only for wheels."""
+    print("hydrate extensions (CPU)", hydrate_official_extensions.remote())
+    print("hydrate models (CPU)", hydrate_official_models.remote())
+    print("setup.py (GPU)", setup_official_extensions.remote())
+
+
+@app.function(
+    volumes=VOLUMES,
+    timeout=60,
+    **IDLE.cpu_function_kwargs(),
+)
+def dump_recent_runs(limit: int = 20):
+    """Read the run ledger after ASGI has scaled to zero."""
+    _bind_runtime_env()
+    from services.run_tracker import list_snapshots  # noqa: PLC0415
+
+    return list_snapshots(limit)
+
 
 @app.cls(
-    gpu=["L40S", "L4", "A100"],
-    volumes={
-        str(MODELS_DIR): models_vol,
-        str(WORKSPACE_DIR): workspace_vol,
-        str(EXTENSIONS_DIR): extensions_vol,
-    },
-    timeout=60 * 60,
-    scaledown_window=10 * 60,
+    volumes=VOLUMES,
+    timeout=IDLE.gpu_timeout_seconds,
+    **IDLE.gpu_cls_kwargs(),
 )
 class GpuGenerator:
-    @modal.enter()
-    def start(self) -> None:
-        import os
-        import sys
-
-        os.environ.setdefault("MODELS_DIR", str(MODELS_DIR))
-        os.environ.setdefault("WORKSPACE_DIR", str(WORKSPACE_DIR))
-        os.environ.setdefault("EXTENSIONS_DIR", str(EXTENSIONS_DIR))
-        os.environ.setdefault("MODLY_RUNTIME", "modal")
-        os.environ.setdefault("MODLY_APP_NAME", APP_NAME)
-        sys.path.insert(0, str(API_ROOT))
+    def _boot(self, *, reload_volumes: bool) -> None:
+        if reload_volumes:
+            models_vol.reload()
+            workspace_vol.reload()
+            extensions_vol.reload()
+        _bind_runtime_env()
         from services.generator_registry import generator_registry  # noqa: PLC0415
 
         generator_registry.initialize()
         self.registry = generator_registry
+
+    @modal.enter(snap=True)
+    def snapshot_runtime(self) -> None:
+        """Captured by the memory snapshot after `modal deploy`."""
+        self._boot(reload_volumes=False)
+
+    @modal.enter(snap=False)
+    def after_restore(self) -> None:
+        """Re-read Volumes so a CPU hydrate is visible after snapshot restore."""
+        self._boot(reload_volumes=True)
 
     @modal.method()
     def generate(self, job_id: str, model_id: str, image_bytes: bytes, params: dict, collection: str = "Default") -> str:
         """Run one image-to-mesh job and persist status in modal.Dict."""
         from services.generators.base import GenerationCancelled
         from services.job_store import get_job_store
+        from services.run_tracker import gpu_enter, gpu_leave, gpu_step
 
         store = get_job_store()
         store.update(job_id, status="running", progress=0, step="Loading model")
+        gpu_enter(job_id, "Loading model")
+        outcome = "error"
+        err = ""
 
         def progress_cb(pct: int, step: str = "") -> None:
             if store.is_cancelled(job_id):
@@ -199,15 +276,22 @@ class GpuGenerator:
             except ValueError:
                 rel = Path(collection) / output_path.name
             store.update(job_id, status="done", progress=100, output_url=f"/workspace/{rel.as_posix()}")
+            gpu_step(job_id, "volume.commit")
             workspace_vol.commit()
             models_vol.commit()
+            outcome = "done"
             return rel.as_posix()
         except GenerationCancelled:
             store.update(job_id, status="cancelled")
+            outcome = "cancelled"
             raise
         except Exception as exc:  # noqa: BLE001
             store.update(job_id, status="error", error=str(exc))
+            outcome = "error"
+            err = str(exc)[:500]
             raise
+        finally:
+            gpu_leave(job_id, outcome, err)
 
     @modal.method()
     def setup_extension(self, ext_id: str) -> str:
@@ -221,9 +305,32 @@ class GpuGenerator:
         return ext_id
 
 
+def _official_extensions_present(ext_dir: Path) -> bool:
+    if not ext_dir.exists():
+        return False
+    return any((p / "manifest.json").exists() for p in ext_dir.iterdir() if p.is_dir())
+
+
+def _clone_official_extensions() -> list[str]:
+    from services.extension_install import (
+        download_github_tarball,
+        extract_extension,
+        parse_github_repo,
+    )
+    from services.generator_registry import EXTENSIONS_DIR as ext_dir
+
+    installed: list[str] = []
+    for url in OFFICIAL_REPOS:
+        owner, repo = parse_github_repo(url)
+        tarball = download_github_tarball(owner, repo)
+        ext_id = extract_extension(tarball, ext_dir, url)
+        installed.append(ext_id)
+    return installed
+
+
 def _run_setup_py(ext_dir: Path) -> None:
     import subprocess
-    import sys
+    import sys as _sys
 
     setup_py = ext_dir / "setup.py"
     if not setup_py.exists():
@@ -238,7 +345,7 @@ def _run_setup_py(ext_dir: Path) -> None:
     except Exception:
         pass
     result = subprocess.run(
-        [sys.executable, str(setup_py), sys.executable, str(ext_dir), str(gpu_sm)],
+        [_sys.executable, str(setup_py), _sys.executable, str(ext_dir), str(gpu_sm)],
         capture_output=True,
         text=True,
     )

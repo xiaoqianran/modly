@@ -27,9 +27,10 @@ Features that invent a new “scan the local models folder” IPC still need a
 one-line shim in `ipc-handlers.ts`.
 
 This is **not** "change `apiUrl` in the renderer and ship". CodeGraph
-(173 files, 2,305 nodes, 5,672 edges) plus a source pass show eight
+2026-08-15 (this tree 196 files / 2,617 nodes / 6,517 edges; upstream
+`dev` without Modal 179 / 2,496 / 6,318) plus a source pass show eight
 coupling surfaces. The overlay concentrates those surfaces in Electron
-main + additive FastAPI routes.
+main + additive FastAPI routes. See `docs/upstream-updates.md`.
 
 ## Context
 
@@ -241,16 +242,19 @@ Three Volumes:
 Two functions:
 
 1. **CPU ASGI** — existing FastAPI, `modal.Dict` job store, Volume mounts,
-   no GPU, `scaledown_window` ~5 min.
-2. **GPU Cls** — `gpu=["L40S", "L4", "A100"]` fallback, `@modal.enter`
-   loads the active generator from the models Volume, `@modal.method`
-   runs `generate()`. Start with `min_containers=0`. Add `min_containers=1`
-   only if cold-start (venv + weight load) is unacceptable.
+   no GPU, `scaledown_window` **8s**, `min_containers=0`, `buffer_containers=0`.
+   The desktop gateway answers `/health` locally so opening the app does not
+   keep this container warm.
+2. **GPU Cls** — default `gpu=["L40S"]` only (set `MODLY_GPU` for anything
+   else; never a silent A100 fallback), `scaledown_window` **5s**,
+   `min_containers=0`, memory snapshot after `modal deploy`. `@modal.enter`
+   initializes the registry; `generate()` loads weights. Do not add
+   `min_containers=1` unless you are choosing to pay for a warm GPU.
 
-Bake official extensions into the Image (or a one-shot `setup` function
-that writes the extensions Volume) instead of running `setup.py` from the
-laptop. Extension `setup.py` already keys off GPU SM; on Modal, detect SM
-inside the GPU container (`torch.cuda.get_device_capability`).
+Bake official extensions with CPU hydrate (`hydrate_official_extensions` +
+`hydrate_official_models`) and run `setup.py` on GPU only. Extension
+`setup.py` already keys off GPU SM; on Modal, detect SM inside the GPU
+container (`torch.cuda.get_device_capability`).
 
 `api/requirements.txt` is the **host** API (fastapi, trimesh, huggingface_hub).
 Torch / CUDA live in each extension venv, same as today. Do not pip-install
@@ -273,9 +277,10 @@ Do not start at (5). A CPU-only Modal deploy that returns `/health` through
 
 ## Risks
 
-- Cold start of a Hunyuan / TRELLIS venv on L40S can be minutes. Prebake
-  venvs on the Volume; use `@modal.enter` so weights load once per
-  container, not once per request.
+- Cold start of a Hunyuan / TRELLIS venv on L40S can be tens of seconds
+  even with a memory snapshot. Prebake venvs + weights on Volumes via CPU
+  hydrate; do not download HuggingFace on the GPU. Use `@modal.enter` so
+  the registry is snapshotted, not re-imported every request.
 - Volume writes need `volume.commit()` after downloads, or the next
   container will not see the weights.
 - `pymeshlab` / native optimize deps must be in the CPU image, not only
