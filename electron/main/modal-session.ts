@@ -9,7 +9,7 @@ import {
   normalizeRemoteApiUrl,
   publicModalSession,
   redactModalSecrets,
-  resolveConnectCredentials,
+  tryResolveConnectCredentials,
   slugifyModalWorkspace,
   type ModalSessionConnectInput,
   type ModalSessionOverlay,
@@ -60,15 +60,11 @@ export async function connectModalSession(
     const bearerToken = (input.bearerToken ?? '').trim()
     const typedWorkspace = slugifyModalWorkspace(input.workspace ?? '')
     const pastedUrl = (input.apiUrl ?? '').trim()
-    const hasTokenFields = Boolean(
-      (input.tokenSetCommand ?? '').trim()
-      || ((input.tokenId ?? '').trim() && (input.tokenSecret ?? '').trim()),
-    )
+    const creds = tryResolveConnectCredentials(input)
 
-    if (hasTokenFields) {
-      const { tokenId, tokenSecret } = resolveConnectCredentials(input)
+    if (creds) {
       try {
-        const workspace = await lookupModalWorkspace(tokenId, tokenSecret, deps)
+        const workspace = await lookupModalWorkspace(creds.tokenId, creds.tokenSecret, deps)
         return applySession({
           apiUrl: buildModalRunUrl(workspace),
           workspace,

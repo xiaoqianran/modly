@@ -7,7 +7,7 @@ import {
   MAX_GPU_LINGER_SECONDS,
   MIN_GPU_LINGER_SECONDS,
 } from '@shared/modalPrefs'
-import type { ModalSessionPublic } from '@shared/modalSession'
+import { absorbModalTokenPaste, type ModalSessionPublic } from '@shared/modalSession'
 import { Section, Card, Row, Toggle } from '@shared/ui'
 
 export function ApplicationSection(): JSX.Element {
@@ -65,7 +65,7 @@ export function ApplicationSection(): JSX.Element {
     setSessionStatus('saving')
     setSessionError(null)
     try {
-      const hasTokens = Boolean(tokenSetCommand.trim() || (tokenId.trim() && tokenSecret.trim()) || workspaceHint.trim())
+      const hasTokens = Boolean(tokenSetCommand.trim() || tokenId.trim() || tokenSecret.trim() || workspaceHint.trim())
       const result = await window.electron.modal.connect({
         tokenSetCommand: tokenSetCommand.trim(),
         tokenId: tokenId.trim(),
@@ -147,7 +147,18 @@ export function ApplicationSection(): JSX.Element {
               )}
               <input
                 value={tokenSetCommand}
-                onChange={(e) => { setTokenSetCommand(e.target.value); setSessionStatus('idle'); setSessionError(null) }}
+                onChange={(e) => {
+                  const next = absorbModalTokenPaste(
+                    { tokenSetCommand, tokenId, tokenSecret },
+                    'tokenSetCommand',
+                    e.target.value,
+                  )
+                  setTokenSetCommand(next.tokenSetCommand)
+                  setTokenId(next.tokenId)
+                  setTokenSecret(next.tokenSecret)
+                  setSessionStatus('idle')
+                  setSessionError(null)
+                }}
                 placeholder="modal token set --token-id ak-… --token-secret as-…"
                 spellCheck={false}
                 autoComplete="off"
@@ -155,7 +166,18 @@ export function ApplicationSection(): JSX.Element {
               />
               <input
                 value={tokenId}
-                onChange={(e) => { setTokenId(e.target.value); setSessionStatus('idle'); setSessionError(null) }}
+                onChange={(e) => {
+                  const next = absorbModalTokenPaste(
+                    { tokenSetCommand, tokenId, tokenSecret },
+                    'tokenId',
+                    e.target.value,
+                  )
+                  setTokenSetCommand(next.tokenSetCommand)
+                  setTokenId(next.tokenId)
+                  setTokenSecret(next.tokenSecret)
+                  setSessionStatus('idle')
+                  setSessionError(null)
+                }}
                 placeholder="token-id (ak-…)"
                 spellCheck={false}
                 autoComplete="off"
@@ -164,7 +186,18 @@ export function ApplicationSection(): JSX.Element {
               <input
                 type="password"
                 value={tokenSecret}
-                onChange={(e) => { setTokenSecret(e.target.value); setSessionStatus('idle'); setSessionError(null) }}
+                onChange={(e) => {
+                  const next = absorbModalTokenPaste(
+                    { tokenSetCommand, tokenId, tokenSecret },
+                    'tokenSecret',
+                    e.target.value,
+                  )
+                  setTokenSetCommand(next.tokenSetCommand)
+                  setTokenId(next.tokenId)
+                  setTokenSecret(next.tokenSecret)
+                  setSessionStatus('idle')
+                  setSessionError(null)
+                }}
                 placeholder="token-secret (as-…)"
                 spellCheck={false}
                 autoComplete="off"

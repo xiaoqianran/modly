@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  absorbModalTokenPaste,
   buildModalRunUrl,
   extractWorkspaceSlug,
   mergeRemoteSession,
@@ -28,6 +29,10 @@ test('parses a pasted modal token set command without keeping extra flags', () =
   )
   assert.deepEqual(parsed, { tokenId: 'ak-EXAMPLEID', tokenSecret: 'as-EXAMPLESECRET' })
   assert.equal(parseModalTokenSetCommand('not a command'), null)
+  assert.deepEqual(
+    parseModalTokenSetCommand('modal token set --token-id "ak-QUOTEDID" --token-secret=\'as-QUOTEDSECRET\''),
+    { tokenId: 'ak-QUOTEDID', tokenSecret: 'as-QUOTEDSECRET' },
+  )
 })
 
 test('resolveConnectCredentials accepts either fields or the CLI command', () => {
@@ -40,11 +45,37 @@ test('resolveConnectCredentials accepts either fields or the CLI command', () =>
   assert.throws(() => resolveConnectCredentials({}), /token-id/)
 })
 
+test('empty dedicated fields do not hide a pasted modal token set command', () => {
+  const fromEmptyFields = resolveConnectCredentials({
+    tokenSetCommand: 'modal token set --token-id ak-ONLYCMD --token-secret as-ONLYCMD',
+    tokenId: '',
+    tokenSecret: '',
+  })
+  assert.deepEqual(fromEmptyFields, { tokenId: 'ak-ONLYCMD', tokenSecret: 'as-ONLYCMD' })
+
+  const fromIdBox = resolveConnectCredentials({
+    tokenId: 'modal token set --token-id ak-INID --token-secret as-INID',
+    tokenSecret: '',
+  })
+  assert.deepEqual(fromIdBox, { tokenId: 'ak-INID', tokenSecret: 'as-INID' })
+})
+
+test('absorbModalTokenPaste splits a CLI line pasted into any one box', () => {
+  const absorbed = absorbModalTokenPaste(
+    { tokenSetCommand: '', tokenId: '', tokenSecret: '' },
+    'tokenSetCommand',
+    'modal token set --token-id ak-PASTED --token-secret as-PASTED',
+  )
+  assert.equal(absorbed.tokenId, 'ak-PASTED')
+  assert.equal(absorbed.tokenSecret, 'as-PASTED')
+})
+
 test('extracts a workspace slug from common Modal JSON shapes', () => {
   assert.equal(extractWorkspaceSlug({ username: 'pythonmoive' }), 'pythonmoive')
   assert.equal(extractWorkspaceSlug({ data: { slug: 'Team_Name' } }), 'team-name')
   assert.equal(extractWorkspaceSlug({ workspace: { name: 'demo' } }), 'demo')
   assert.equal(extractWorkspaceSlug({}), null)
+  assert.equal(extractWorkspaceSlug({ username: 'ak-NOTAWORKSPACE' }), null)
   assert.equal(slugifyModalWorkspace(''), '')
 })
 

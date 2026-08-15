@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { decodeProtoStrings, lookupModalWorkspace, parseGrpcUnaryPayload } from './modal-workspace.ts'
+import {
+  decodeProtoStrings,
+  grpcStatusFromHeaders,
+  lookupModalWorkspace,
+  parseGrpcUnaryPayload,
+  workspaceFromLookupPayload,
+  workspaceFromTokenInfoPayload,
+} from './modal-workspace.ts'
 
 test('decodes protobuf string fields used by WorkspaceNameLookup', () => {
   const username = Buffer.from('pythonmoive')
@@ -21,6 +28,33 @@ test('reads the payload after a gRPC-web / HTTP2 data frame header', () => {
   inner.copy(frame, 5)
   const payload = parseGrpcUnaryPayload(frame)
   assert.deepEqual(Buffer.from(payload), inner)
+})
+
+test('reads grpc-status from response headers, not only the data frame', () => {
+  const denied = grpcStatusFromHeaders({
+    ':status': '200',
+    'grpc-status': '16',
+    'grpc-message': 'Token%20not%20found',
+  })
+  assert.equal(denied.code, 16)
+  assert.equal(denied.message, 'Token not found')
+  assert.equal(grpcStatusFromHeaders({ ':status': '200' }, { 'grpc-status': '0' }).code, 0)
+})
+
+test('TokenInfoGet uses workspace_name (field 3), not token_id', () => {
+  const token = Buffer.from('ak-XXXXXX')
+  const name = Buffer.from('pythonmoive')
+  const buf = Buffer.concat([
+    Buffer.from([0x0a, token.length]),
+    token,
+    Buffer.from([0x1a, name.length]),
+    name,
+  ])
+  assert.equal(workspaceFromTokenInfoPayload(buf), 'pythonmoive')
+  assert.equal(workspaceFromLookupPayload(Buffer.concat([
+    Buffer.from([0x12, name.length]),
+    name,
+  ])), 'pythonmoive')
 })
 
 test('REST lookup prefers username/slug and never returns the secret', async () => {
