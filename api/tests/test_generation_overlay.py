@@ -37,7 +37,10 @@ class DispatchFromImageTests(unittest.TestCase):
     def test_gpu_worker_claims_the_http_handler(self) -> None:
         self._pending()
         spawned = SpawnResult(started=True, call_id="fc-live")
-        with patch("services.generation_overlay.spawn_gpu_generation", return_value=spawned):
+        with (
+            patch("services.generation_overlay.weights_ready", return_value=True),
+            patch("services.generation_overlay.spawn_gpu_generation", return_value=spawned),
+        ):
             self.assertTrue(dispatch_from_image("j1", "hunyuan-mini/mini", b"png", {}, "Default"))
         body = snapshot("j1")
         self.assertEqual(body["spawn_call_id"], "fc-live")
@@ -47,10 +50,34 @@ class DispatchFromImageTests(unittest.TestCase):
         self.assertEqual(job.step, "Starting GPU worker…")
 
     @patch.dict(os.environ, {"MODLY_RUNTIME": "modal"}, clear=False)
+    def test_missing_weights_spawn_cpu_prepare_not_gpu(self) -> None:
+        self._pending()
+        spawned = SpawnResult(started=True, call_id="fc-cpu")
+        with (
+            patch("services.generation_overlay.weights_ready", return_value=False),
+            patch("services.generation_overlay.spawn_prepare_and_gpu", return_value=spawned) as prep,
+            patch("services.generation_overlay.spawn_gpu_generation") as gpu,
+        ):
+            self.assertTrue(dispatch_from_image("j1", "triposg/generate", b"png", {}, "Default"))
+        gpu.assert_not_called()
+        prep.assert_called_once()
+        body = snapshot("j1")
+        self.assertEqual(body["spawn_call_id"], "fc-cpu")
+        self.assertNotIn("gpu.worker", body["chain"])
+        self.assertIn("cpu.hydrate", body["chain"])
+        self.assertEqual(body["phase"]["id"], "downloading_weights")
+        job = get_job("j1")
+        self.assertEqual(job.step, "Downloading model weights")
+        self.assertEqual(job.status, "running")
+
+    @patch.dict(os.environ, {"MODLY_RUNTIME": "modal"}, clear=False)
     def test_spawn_error_claims_the_handler_and_does_not_start_a_thread(self) -> None:
         self._pending()
         spawned = SpawnResult(started=False, error="Cls.from_name failed")
-        with patch("services.generation_overlay.spawn_gpu_generation", return_value=spawned):
+        with (
+            patch("services.generation_overlay.weights_ready", return_value=True),
+            patch("services.generation_overlay.spawn_gpu_generation", return_value=spawned),
+        ):
             self.assertTrue(dispatch_from_image("j1", "m", b"x", {}, "Default"))
         job = get_job("j1")
         self.assertEqual(job.status, "error")

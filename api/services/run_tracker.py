@@ -74,10 +74,23 @@ def open_run(job_id: str, model_id: str, source: str) -> None:
         print(f"[run-ledger] open_run failed: {exc}")
 
 
-def note_spawn(job_id: str, call_id: str) -> None:
+def note_hydrate(job_id: str, call_id: str) -> None:
+    """CPU weight pull is in flight. spawn_call_id is the CPU FunctionCall (cancellable)."""
+
     def apply(record: RunRecord) -> None:
         record.spawn_call_id = call_id
-        record.open_span("cpu.spawn_gpu", _now(), detail=call_id)
+        record.status = "running"
+        record.open_span("cpu.hydrate", _now(), detail=call_id)
+
+    _mutate(job_id, apply)
+
+
+def note_spawn(job_id: str, call_id: str) -> None:
+    def apply(record: RunRecord) -> None:
+        now = _now()
+        record.close_span("cpu.hydrate", now, detail="weights ready")
+        record.spawn_call_id = call_id
+        record.open_span("cpu.spawn_gpu", now, detail=call_id)
         if "gpu.worker" not in record.chain:
             record.chain.append("gpu.worker")
 
@@ -87,6 +100,7 @@ def note_spawn(job_id: str, call_id: str) -> None:
 def note_spawn_failed(job_id: str, detail: str) -> None:
     def apply(record: RunRecord) -> None:
         now = _now()
+        record.close_span("cpu.hydrate", now, detail=detail)
         record.close_span("cpu.spawn_gpu", now, detail=detail)
         record.close_span("cpu.poll", now)
         record.note("error.spawn", now, detail=detail)
@@ -121,6 +135,7 @@ def finish_run(job_id: str, status: str, error: str = "") -> None:
         now = _now()
         final = "cancelled" if record.status == "cancelled" and status == "done" else status
         record.close_span("cpu.poll", now)
+        record.close_span("cpu.hydrate", now, detail=final)
         record.close_span("cpu.generate", now, detail=final)
         record.close_span("gpu.generate", now, detail=final)
         record.close_span("cpu.spawn_gpu", now)
@@ -213,6 +228,7 @@ def mark_cancel(job_id: str, detail: str = "client cancel") -> None:
         record.note("cpu.cancel", now, detail=detail)
         record.status = "cancelled"
         record.close_span("cpu.poll", now)
+        record.close_span("cpu.hydrate", now, detail="cancelled")
         record.close_span("cpu.generate", now, detail="cancelled")
         record.close_span("gpu.generate", now, detail="cancelled")
         record.close_span("cpu.spawn_gpu", now)

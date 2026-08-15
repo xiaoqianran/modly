@@ -23,9 +23,9 @@ def after_gpu_spawn(spawned: SpawnResult, *, modal: bool) -> GenerateKind:
     """Modal must never fall back to the laptop / CPU-ASGI generate thread.
 
     Live lesson: a failed `GpuGenerator.generate.spawn` used to call
-    `_run_generation` on the CPU container. The UI sat on "Loading model"
-    while either nothing ran, or a leaked GPU kept billing. On Modal the
-    job becomes `error` and no local thread starts.
+    `_run_generation` on the CPU container. Missing weights now go through
+    `prepare_and_spawn_gpu` (CPU HuggingFace) before any L40S start. On Modal
+    a failed spawn becomes `error` and no local thread starts.
     """
     if spawned.started:
         return "gpu-worker"

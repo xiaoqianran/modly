@@ -108,6 +108,7 @@ L40S 60 秒大约 **$0.03**。同一次会话里连点 3 次 Generate，只付�
 |------|------|--------|
 | `hydrate_official_extensions` | CPU | clone 官方 Hunyuan / TripoSG / TRELLIS 源码到 Volume |
 | `hydrate_official_models` | CPU | `snapshot_download` 权重到 `modly-models`（**不要在 L40S 上下 10GB**） |
+| `prepare_and_spawn_gpu` | CPU → 再 spawn GPU | Generate 缺权重时自动走这条：先 CPU 下载，再 L40S 装显存 + 推理 |
 | `setup_official_extensions` | GPU | 只跑各扩展 `setup.py`（CUDA wheel / SM） |
 | `bake_official_extensions` | 上面三个串起来 | 一条命令 |
 

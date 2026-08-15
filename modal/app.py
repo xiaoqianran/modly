@@ -194,22 +194,12 @@ def hydrate_official_models():
     _bind_runtime_env()
     downloaded: list[str] = []
     skipped: list[str] = []
-    from huggingface_hub import snapshot_download  # noqa: PLC0415
-    from services.modal_hydrate import SNAPSHOT_IGNORE, hf_targets_from_extensions  # noqa: PLC0415
+    from services.modal_hydrate import download_hf_target, hf_targets_from_extensions  # noqa: PLC0415
 
     # Read manifests directly so this works before setup.py clears .modly-incomplete.
     for target in hf_targets_from_extensions(Path(EXTENSIONS_DIR), Path(MODELS_DIR)):
-        dest = Path(target["dest"])
-        if dest.exists() and any(dest.iterdir()):
-            skipped.append(target["model_id"])
-            continue
-        dest.mkdir(parents=True, exist_ok=True)
-        snapshot_download(
-            repo_id=target["hf_repo"],
-            local_dir=str(dest),
-            ignore_patterns=list(target["hf_skip_prefixes"]) + SNAPSHOT_IGNORE,
-        )
-        downloaded.append(target["model_id"])
+        result = download_hf_target(target)
+        (skipped if result == "skipped" else downloaded).append(target["model_id"])
     models_vol.commit()
     return {"downloaded": downloaded, "skipped": skipped}
 
@@ -307,7 +297,6 @@ class GpuGenerator:
         from services.generators.base import GenerationCancelled
         from services.gpu_job_steps import (
             STEP_COMMITTING,
-            STEP_DOWNLOADING,
             STEP_GENERATING,
             STEP_LOADING,
             model_weights_ready,
@@ -319,6 +308,10 @@ class GpuGenerator:
         if store.is_cancelled(job_id):
             gpu_leave(job_id, "cancelled")
             return "cancelled"
+        try:
+            models_vol.reload()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[modal] generate models reload failed: {exc}")
         store.update(job_id, status="running", progress=0, step=STEP_LOADING)
         gpu_enter(job_id, STEP_LOADING)
         outcome = "error"
@@ -341,8 +334,10 @@ class GpuGenerator:
         try:
             self.registry.switch_model(model_id)
             if not model_weights_ready(self.registry, model_id):
-                store.update(job_id, step=STEP_DOWNLOADING)
-                gpu_step(job_id, STEP_DOWNLOADING)
+                raise RuntimeError(
+                    f"Model weights for {model_id} are not on the Volume. "
+                    "Download runs on CPU only; GPU only loads VRAM."
+                )
             if store.is_cancelled(job_id):
                 raise GenerationCancelled()
             gen = self.registry.get_active()
@@ -398,6 +393,61 @@ class GpuGenerator:
         clear_incomplete(ext_dir, ext_id)
         extensions_vol.commit()
         return ext_id
+
+
+@app.function(
+    volumes=VOLUMES,
+    secrets=TOKEN_SECRETS,
+    timeout=6 * 60 * 60,
+    cpu=8.0,
+    memory=16384,
+    **IDLE.cpu_function_kwargs(),
+)
+def prepare_and_spawn_gpu(
+    job_id: str,
+    model_id: str,
+    image_bytes: bytes,
+    params: dict,
+    collection: str = "Default",
+) -> str:
+    """CPU: HuggingFace pull onto the Volume, then spawn GPU for VRAM + infer."""
+    _bind_runtime_env()
+    from services.gpu_job_steps import STEP_STARTING_GPU
+    from services.job_store import get_job_store
+    from services.modal_hydrate import download_hf_target, target_for_model_id
+    from services.modal_runtime import hold_gpu_for_retry
+    from services.run_tracker import note_spawn, note_spawn_failed
+
+    store = get_job_store()
+    if store.is_cancelled(job_id):
+        return "cancelled"
+    try:
+        try:
+            models_vol.reload()
+            extensions_vol.reload()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[modal] prepare reload failed: {exc}")
+        if not _official_extensions_present(Path(EXTENSIONS_DIR)):
+            _clone_official_extensions()
+            extensions_vol.commit()
+        target = target_for_model_id(model_id, Path(EXTENSIONS_DIR), Path(MODELS_DIR))
+        if target is None:
+            raise RuntimeError(f"No HuggingFace repo for {model_id}. Cannot download on CPU.")
+        result = download_hf_target(target)
+        print(f"[modal] CPU hydrate {model_id}: {result}")
+        models_vol.commit()
+        if store.is_cancelled(job_id):
+            return "cancelled"
+        call = GpuGenerator().generate.spawn(job_id, model_id, image_bytes, params, collection)
+        call_id = getattr(call, "object_id", None) or getattr(call, "call_id", "") or ""
+        note_spawn(job_id, str(call_id))
+        store.update(job_id, step=STEP_STARTING_GPU)
+        hold_gpu_for_retry()
+        return str(call_id)
+    except Exception as exc:  # noqa: BLE001
+        note_spawn_failed(job_id, str(exc))
+        store.update(job_id, status="error", error=str(exc)[:500])
+        raise
 
 
 def _official_extensions_present(ext_dir: Path) -> bool:

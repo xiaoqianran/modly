@@ -63,6 +63,10 @@ export function describeRemoteRunPhase(run: RemoteRunSnapshot): RemoteRunPhase {
   if (status === 'cancelled') return { id: 'cancelled', label: 'Cancelled' }
   if (status === 'done') return { id: 'done', label: 'Done' }
 
+  if (run.spans?.some((span) => span.name === 'cpu.hydrate' && span.t1 == null)) {
+    return { id: 'downloading_weights', label: 'Downloading model weights' }
+  }
+
   const latest = latestGpuStep(run.spans)
   const low = latest.toLowerCase()
   // "downloading" contains "load" — check download first.

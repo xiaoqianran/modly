@@ -9,19 +9,22 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from services.generate_dispatch import after_gpu_spawn, spawn_error_message
-from services.gpu_job_steps import STEP_STARTING_GPU
+from services.gpu_job_steps import STEP_DOWNLOADING, STEP_STARTING_GPU
 from services.job_store import get_job_store
 from services.modal_runtime import (
     commit_volume,
     is_modal_runtime,
     release_gpu_pool,
     spawn_gpu_generation,
+    spawn_prepare_and_gpu,
     stop_run_compute,
+    weights_ready,
 )
 from services.run_tracker import (
     apply_status_watch,
     finish_run,
     mark_cancel,
+    note_hydrate,
     note_spawn,
     note_spawn_failed,
     open_run,
@@ -50,6 +53,17 @@ def dispatch_from_image(
 ) -> bool:
     """True = the HTTP handler should return now (GPU worker or spawn error)."""
     open_run(job_id, model_id, kind)
+    if is_modal_runtime() and not weights_ready(model_id):
+        spawned = spawn_prepare_and_gpu(job_id, model_id, image_bytes, params, collection)
+        plan = after_gpu_spawn(spawned, modal=True)
+        if plan == "gpu-worker":
+            note_hydrate(job_id, spawned.call_id)
+            get_job_store().update(job_id, status="running", step=STEP_DOWNLOADING)
+            return True
+        err = spawn_error_message(spawned)
+        note_spawn_failed(job_id, err)
+        get_job_store().update(job_id, status="error", error=err)
+        return True
     spawned = spawn_gpu_generation(job_id, model_id, image_bytes, params, collection)
     plan = after_gpu_spawn(spawned, modal=is_modal_runtime())
     if plan == "gpu-worker":

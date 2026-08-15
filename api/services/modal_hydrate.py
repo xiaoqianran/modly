@@ -45,6 +45,7 @@ def hf_targets_from_extensions(ext_root: Path, models_root: Path) -> list[dict[s
                         "hf_repo": hf_repo,
                         "dest": str(models_root / model_id),
                         "hf_skip_prefixes": list(skip) if isinstance(skip, list) else [],
+                        "download_check": str(node.get("download_check") or manifest.get("download_check") or ""),
                     }
                 )
         else:
@@ -58,9 +59,42 @@ def hf_targets_from_extensions(ext_root: Path, models_root: Path) -> list[dict[s
                     "hf_repo": hf_repo,
                     "dest": str(models_root / ext_id),
                     "hf_skip_prefixes": list(skip) if isinstance(skip, list) else [],
+                    "download_check": str(manifest.get("download_check") or ""),
                 }
             )
     return targets
 
 
 SNAPSHOT_IGNORE = ["*.md", "LICENSE", "NOTICE", "Notice.txt", ".gitattributes"]
+
+
+def dest_has_weights(dest: Path, download_check: str = "") -> bool:
+    if download_check:
+        return (dest / download_check).exists()
+    try:
+        return dest.exists() and any(dest.iterdir())
+    except OSError:
+        return False
+
+
+def target_for_model_id(model_id: str, ext_root: Path, models_root: Path) -> dict[str, Any] | None:
+    for row in hf_targets_from_extensions(ext_root, models_root):
+        if row["model_id"] == model_id:
+            return row
+    return None
+
+
+def download_hf_target(target: dict[str, Any]) -> str:
+    """CPU snapshot_download. Returns downloaded | skipped."""
+    dest = Path(target["dest"])
+    if dest_has_weights(dest, str(target.get("download_check") or "")):
+        return "skipped"
+    dest.mkdir(parents=True, exist_ok=True)
+    from huggingface_hub import snapshot_download  # noqa: PLC0415
+
+    snapshot_download(
+        repo_id=str(target["hf_repo"]),
+        local_dir=str(dest),
+        ignore_patterns=list(target.get("hf_skip_prefixes") or []) + SNAPSHOT_IGNORE,
+    )
+    return "downloaded"

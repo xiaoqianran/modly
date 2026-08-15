@@ -10,6 +10,7 @@ from services.run_tracker import (
     gpu_enter,
     list_snapshots,
     mark_cancel,
+    note_hydrate,
     note_spawn,
     open_run,
     snapshot,
@@ -119,10 +120,23 @@ class RunRecordTests(unittest.TestCase):
             gpu="L40S",
             status="pending",
             spawn_call_id="fc-1",
+            chain=["desktop.8765", "gpu.worker"],
             created_at=0.0,
         )
         leak = rec.leak(now=2000.0, gpu_timeout=100)
         self.assertEqual(leak["kind"], "spawn_hung")
+        cpu_only = RunRecord(
+            run_id="c",
+            job_id="c",
+            model_id="m",
+            source="g",
+            gpu="L40S",
+            status="running",
+            spawn_call_id="fc-cpu",
+            chain=["desktop.8765", "cpu.hydrate"],
+            created_at=0.0,
+        )
+        self.assertIsNone(cpu_only.leak(now=2000.0, gpu_timeout=100))
 
 
 class RunTrackerTests(unittest.TestCase):
@@ -187,6 +201,19 @@ class RunTrackerTests(unittest.TestCase):
         ids = [row["job_id"] for row in list_snapshots(10)]
         self.assertEqual(ids[0], "b")
         self.assertIn("a", ids)
+
+    def test_cpu_hydrate_does_not_look_like_spawn_hung(self) -> None:
+        open_run("hyd", "triposg/generate", "generate")
+        note_hydrate("hyd", "fc-cpu")
+        rec = get_run_store().get("hyd")
+        assert rec is not None
+        rec.created_at = time.time() - 2000
+        get_run_store().put(rec)
+        body = snapshot("hyd")
+        self.assertEqual(body["status"], "running")
+        self.assertEqual(body["phase"]["id"], "downloading_weights")
+        self.assertIsNone(body["leak"])
+        self.assertNotIn("gpu.worker", body["chain"])
 
     def test_snapshot_heals_over_timeout(self) -> None:
         open_run("hung", "m", "generate")
