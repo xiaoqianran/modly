@@ -40,6 +40,12 @@ class WeightsReadyTests(unittest.TestCase):
         self.assertIn("STEP_DOWNLOADING", src)
         self.assertIn("STEP_GENERATING", src)
         self.assertIn("model_weights_ready", src)
+        load_at = src.find("get_active()")
+        first_models_commit = src.find("models_vol.commit()", load_at)
+        generate_at = src.find("gen.generate(", load_at)
+        self.assertGreater(load_at, 0)
+        self.assertGreater(first_models_commit, load_at)
+        self.assertGreater(generate_at, first_models_commit)
 
 
 class PhaseTests(unittest.TestCase):

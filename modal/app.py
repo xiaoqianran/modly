@@ -348,6 +348,10 @@ class GpuGenerator:
             gen = self.registry.get_active()
             if store.is_cancelled(job_id):
                 raise GenerationCancelled()
+            # Persist weights before inference. Cancel used to drop a 10-minute
+            # L40S HuggingFace pull because commit only ran after a finished mesh.
+            gpu_step(job_id, "models.commit")
+            models_vol.commit()
             store.update(job_id, step=STEP_GENERATING)
             gpu_step(job_id, STEP_GENERATING)
             workspace_root = Path(WORKSPACE_DIR)
