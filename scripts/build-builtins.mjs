@@ -43,9 +43,16 @@ for (const id of readdirSync(srcDir)) {
   if (existsSync(pkgSrc)) {
     cpSync(pkgSrc, join(extOutDir, 'package.json'))
     console.log(`[build-builtins] ${id}: Installing npm dependencies…`)
+    // sharp 0.32 (pulled by ndarray-pixels) downloads libvips from GitHub and
+    // aborts on Node 24 / blocked github.com. Extension package.json overrides
+    // sharp to 0.33.x so binaries come from the npm registry instead.
     execSync('npm install --omit=dev --no-audit --no-fund', {
       cwd:   extOutDir,
       stdio: 'inherit',
+      env: {
+        ...process.env,
+        SHARP_IGNORE_GLOBAL_LIBVIPS: '1',
+      },
     })
     console.log(`[build-builtins] ${id}: npm install done`)
   }
