@@ -10,6 +10,7 @@ import {
 import { absorbModalTokenPaste, type ModalSessionPublic } from '@shared/modalSession'
 import { useExtensionsStore } from '@shared/stores/extensionsStore'
 import { Section, Card, Row, Toggle } from '@shared/ui'
+import { RemoteRunsCard } from './RemoteRunsCard'
 
 export function ApplicationSection(): JSX.Element {
   const { showRamIndicator, setShowRamIndicator } = useAppStore()
@@ -317,6 +318,10 @@ export function ApplicationSection(): JSX.Element {
           </button>
         </Row>
       </Card>
+
+      <div className="mt-6">
+        <RemoteRunsCard />
+      </div>
     </Section>
   )
 }

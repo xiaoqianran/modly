@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from services.generate_dispatch import after_gpu_spawn, spawn_error_message
+from services.gpu_job_steps import STEP_STARTING_GPU
 from services.job_store import get_job_store
 from services.modal_runtime import (
     commit_volume,
@@ -53,6 +54,7 @@ def dispatch_from_image(
     plan = after_gpu_spawn(spawned, modal=is_modal_runtime())
     if plan == "gpu-worker":
         note_spawn(job_id, spawned.call_id)
+        get_job_store().update(job_id, step=STEP_STARTING_GPU)
         return True
     if plan == "spawn-error":
         err = spawn_error_message(spawned)

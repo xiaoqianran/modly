@@ -305,6 +305,13 @@ class GpuGenerator:
     def generate(self, job_id: str, model_id: str, image_bytes: bytes, params: dict, collection: str = "Default") -> str:
         """Run one image-to-mesh job and persist status in modal.Dict."""
         from services.generators.base import GenerationCancelled
+        from services.gpu_job_steps import (
+            STEP_COMMITTING,
+            STEP_DOWNLOADING,
+            STEP_GENERATING,
+            STEP_LOADING,
+            model_weights_ready,
+        )
         from services.job_store import get_job_store
         from services.run_tracker import gpu_enter, gpu_leave, gpu_step
 
@@ -312,8 +319,8 @@ class GpuGenerator:
         if store.is_cancelled(job_id):
             gpu_leave(job_id, "cancelled")
             return "cancelled"
-        store.update(job_id, status="running", progress=0, step="Loading model")
-        gpu_enter(job_id, "Loading model")
+        store.update(job_id, status="running", progress=0, step=STEP_LOADING)
+        gpu_enter(job_id, STEP_LOADING)
         outcome = "error"
         err = ""
 
@@ -333,11 +340,20 @@ class GpuGenerator:
 
         try:
             self.registry.switch_model(model_id)
+            if not model_weights_ready(self.registry, model_id):
+                store.update(job_id, step=STEP_DOWNLOADING)
+                gpu_step(job_id, STEP_DOWNLOADING)
             if store.is_cancelled(job_id):
                 raise GenerationCancelled()
             gen = self.registry.get_active()
             if store.is_cancelled(job_id):
                 raise GenerationCancelled()
+            # Persist weights before inference. Cancel used to drop a 10-minute
+            # L40S HuggingFace pull because commit only ran after a finished mesh.
+            gpu_step(job_id, "models.commit")
+            models_vol.commit()
+            store.update(job_id, step=STEP_GENERATING)
+            gpu_step(job_id, STEP_GENERATING)
             workspace_root = Path(WORKSPACE_DIR)
             coll_dir = workspace_root / collection
             coll_dir.mkdir(parents=True, exist_ok=True)
@@ -348,7 +364,7 @@ class GpuGenerator:
             except ValueError:
                 rel = Path(collection) / output_path.name
             store.update(job_id, status="done", progress=100, output_url=f"/workspace/{rel.as_posix()}")
-            gpu_step(job_id, "volume.commit")
+            gpu_step(job_id, STEP_COMMITTING)
             workspace_vol.commit()
             models_vol.commit()
             outcome = "done"

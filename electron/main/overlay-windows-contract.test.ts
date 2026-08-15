@@ -295,6 +295,19 @@ test('Modal GPU prefs live in Settings, not Generate / useApi', () => {
   assert.equal(useApi.includes('/settings/modal'), false)
 })
 
+test('Settings shows live remote runs without going through useApi', () => {
+  const settings = readRepo('src/areas/settings/components/ApplicationSection.tsx')
+  const card = readRepo('src/areas/settings/components/RemoteRunsCard.tsx')
+  const useApi = readRepo('src/shared/hooks/useApi.ts')
+  assert.match(settings, /RemoteRunsCard/)
+  assert.match(card, /\/runs/)
+  assert.match(card, /describeRemoteRunPhase/)
+  assert.equal(card.includes('useApi'), false)
+  assert.equal(settings.includes('useApi'), false)
+  assert.equal(useApi.includes('/runs'), false)
+  assert.equal(readRepo('src/areas/generate/GeneratePage.tsx').includes('/runs'), false)
+})
+
 test('GET /runs is never a cache-get (live ledger must not go stale)', async () => {
   const { classifyGatewayRequest, isCacheGetPath } = await loadGateway()
   assert.equal(isCacheGetPath('/runs'), false)
@@ -387,6 +400,7 @@ test('sound JSON shapes the Windows UI actually consumes', async () => {
       spawn_call_id: 'fc-1',
       bill: { estimated_usd: 0.0006, gpu_seconds: 0, cpu_seconds: 1 },
       leak: null,
+      phase: { id: 'cancelled', label: 'Cancelled' },
     }],
   }
   assert.ok(Array.isArray(runs.runs[0].chain))

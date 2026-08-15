@@ -66,7 +66,21 @@ Modal 按**容器窗口**收钱：该类 span 第一次开始 → 最后一次�
 
 ## 怎么看
 
-桌面在跑的时候：
+Settings → Application → **Remote runs** 读同一个 `GET /runs`（不走 `useApi`）。Generate HUD 只显示 `job.step`。
+
+`phase.id` 怎么读：
+
+| phase | 实际在干什么 |
+|-------|----------------|
+| `accepted` | CPU 已接单，还没 `spawn` |
+| `starting_gpu` | 已有 `spawn_call_id`，GPU 容器在冷启动或拉镜像 |
+| `downloading_weights` | Volume 上还没有权重，正在拉模型。**不要取消**：当前已部署的版本只在出 mesh 之后才 `models_vol.commit()`，取消等于白下。 |
+| `loading_model` | 权重在盘上，正在进显存 |
+| `generating` | 正在出 mesh |
+| `committing` | 写回 Volume |
+| `error` / `done` / `cancelled` | 已经结束，看 `error` |
+
+桌面在跑的时候也可以：
 
 ```bash
 curl -s http://127.0.0.1:8765/runs | python -m json.tool

@@ -33,6 +33,7 @@ RUN_KEYS = {
     "updated_at",
     "bill",
     "leak",
+    "phase",
 }
 
 BILL_KEYS = {
@@ -79,6 +80,7 @@ class OverlayHttpShapeTests(unittest.TestCase):
         self.assertEqual(body["spawn_call_id"], "fc-abc")
         self.assertEqual(body["chain"][:3], ["desktop.8765", "gateway", "cpu.asgi"])
         self.assertIn("gpu.worker", body["chain"])
+        self.assertEqual(body["phase"]["id"], "starting_gpu")
         self.assertIsInstance(body["bill"]["estimated_usd"], float)
         listed = {"runs": list_snapshots(20)}
         self.assertEqual(listed["runs"][0]["job_id"], "job-live")
