@@ -173,7 +173,7 @@ modal serve modal/app.py   # 用完 Ctrl-C
 
 桌面 Settings → Application → Compute backend（Modal）可以改停留秒数和想用的卡。停留秒数走 `POST /settings/modal`，下次 Generate 就按新窗口留 GPU。换卡只记在本机 `settings.json`，要 `MODLY_GPU=… modal deploy modal/app.py` 才换上。这两项都不在 Generate 页。
 
-改 linger / 选卡 **不必每次打 Windows exe**。配置在 `userData/settings.json`，`npm run dev` 和已装的 exe 读同一份。只有 Settings 界面本身是新代码时，才需要打一版带这个 UI 的安装包。默认 60s 在 `modal deploy` 之后就会生效，旧 exe 没有这项 Settings 也能用。
+改 linger / 选卡 **不必每次打 Windows exe**。这两项在 `userData/settings.json`，`npm run dev` 和已装的 exe 读同一份。Modal CLI token（`ak-` / `as-`）不要写进这个文件：用 Settings / 首次启动的 **Connect this session**，只活在当前进程。只有 Settings 界面本身是新代码时，才需要打一版带这个 UI 的安装包。默认 60s 在 `modal deploy` 之后就会生效，旧 exe 没有这项 Settings 也能用。
 
 冷启动（第一次 Generate 当天）仍可能要几十秒：snapshot restore + 扩展 venv + 把权重 load 进显存。这是**付一次**，不是包月。觉得冷启动不可接受再考虑 `min_containers=1`——那才是“一直 deploy 着一台机器”。
 

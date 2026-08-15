@@ -57,14 +57,16 @@ npm run dev
 
 ### 3. 第一次打开
 
-选 **Use a Modal cloud backend instead**，填：
+选 **Use a Modal cloud backend instead**。可以二选一，都只活在**这一次打开的 App 里**，不写本机 settings 文件夹：
 
-- **Modal URL**：`modal deploy modal/app.py` 之后那个 `https://…--modly-backend-fastapi-app.modal.run`
-- **API token**：有就填，没有留空
+- **Modal CLI token**：把 `token-id` / `token-secret`（或整行 `modal token set --token-id … --token-secret …`）贴进 App。进程里会去问 Modal 你的 workspace，再拼出 `https://<workspace>--modly-backend-fastapi-app.modal.run`。关掉 App 就忘。
+- **或者**直接贴已经 `modal deploy modal/app.py` 出来的 `https://…modal.run` URL。
 
-保存后如果还停在设置页，**关掉 App 再 `npm run dev` 一次**。Mode / URL 改完必须重启。
+下面那个 **API token / Bearer** 是可选的 FastAPI 口令，**不是** `ak-` / `as-` 那一对。
 
-已经进主界面了，也可以：**Settings → Application → Compute backend → Modal**，填同样的 URL，保存，重启。停留秒数（默认 60）和 GPU 卡也在这里改。
+云端还没有 `modly-backend` 的话，token 只能查出 workspace，连不上应用。先在会 `modal` 的机器上 `modal deploy modal/app.py`。
+
+已经进主界面了，也可以：**Settings → Application → Compute backend → Modal → Connect this session**。停留秒数（默认 60）和 GPU 卡仍可「Save backend」记在这台电脑；CLI token 不会进 `settings.json`。
 
 ### 4. 和云端的关系
 

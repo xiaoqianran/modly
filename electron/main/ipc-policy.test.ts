@@ -35,6 +35,9 @@ test('local chrome never leaves the laptop', async () => {
     'workspace:library:list',
     'log:readAll',
     'updater:check',
+    'modal:session:connect',
+    'modal:session:status',
+    'modal:session:clear',
   ]) {
     assert.equal(classifyIpcChannel(channel), 'local', channel)
   }

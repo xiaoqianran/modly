@@ -18,6 +18,7 @@ generate / download / setup request. Do not leave `modal serve` running.
 pip install -r modal/requirements.txt   # modal[api-proxy-support]
 # equivalent: pip install 'modal[api-proxy-support]'
 modal token set          # never paste the token into git or chat
+# Desktop can instead use Connect this session (memory only; not settings.json)
 modal deploy modal/app.py
 modal run modal/app.py::bake_official_extensions   # CPU clone + CPU HF + GPU setup.py
 ```

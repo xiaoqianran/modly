@@ -23,8 +23,8 @@
 对话里出现过 Modal token。按泄露处理：
 
 1. 立刻在 [Modal tokens](https://modal.com/settings) **轮换 / 作废**旧 token。
-2. 只在你自己的机器上执行 `modal token set`，不要贴到聊天、Issue、PR、仓库。
-3. HuggingFace token、Modal token、将来的 API bearer **全部走 Modal Secret / 本机 settings.json**，禁止进 git。
+2. 不要把 token 贴到聊天、Issue、PR、仓库。本机可以：`modal token set`，或只把 `ak-` / `as-` 贴进桌面 **Connect this session**（Electron 主进程内存，不写 `userData/settings.json`，退出即忘）。
+3. HuggingFace token、Modal Secret、可选 FastAPI Bearer **禁止进 git**。CLI token 不要写进 `settings.json`。若 token 曾经出现在聊天里，先去 [Modal tokens](https://modal.com/settings) 轮换。
 
 本仓库的 `modal/` 骨架**不会**读取、写入或部署任何 token。
 

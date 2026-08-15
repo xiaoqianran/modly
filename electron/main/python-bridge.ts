@@ -6,6 +6,7 @@ import axios from 'axios'
 import { getSettings } from './settings-store'
 import { logger } from './logger'
 import { cleanPythonEnv, getVenvPythonExe } from './python-setup'
+import { overlayRemoteSettings } from './modal-session'
 import { resolveRemoteBackend } from './remote-backend'
 import { startRemoteGateway, type StartedGateway } from './remote-gateway'
 
@@ -37,7 +38,7 @@ export class PythonBridge {
   }
 
   private async _start(): Promise<void> {
-    const remote = resolveRemoteBackend(getSettings(app.getPath('userData')))
+    const remote = resolveRemoteBackend(overlayRemoteSettings(getSettings(app.getPath('userData'))))
     if (remote.enabled) {
       await this.startGateway(remote.apiUrl, remote.token)
       return

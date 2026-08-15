@@ -2,6 +2,7 @@
 export {}
 
 import type { AppSettings, AppSettingsPatch } from './appSettings'
+import type { ModalSessionConnectInput, ModalSessionPublic } from '../modalSession'
 import type {
   AssetLibraryListResult,
   AssetLibraryOpenRequest,
@@ -184,6 +185,11 @@ declare global {
         moveDirectory:   (args: { src: string; dest: string }) => Promise<{ success: boolean; error?: string }>
         deleteDirectory: (dirPath: string) => Promise<{ success: boolean; error?: string }>
         readScreenshotDataUrl: (filename: string) => Promise<string>
+      }
+      modal: {
+        connect: (input: ModalSessionConnectInput) => Promise<ModalSessionPublic & { ok: boolean; error?: string; warning?: string }>
+        status: () => Promise<ModalSessionPublic>
+        clear: () => Promise<ModalSessionPublic>
       }
       settings: {
         get: () => Promise<AppSettings>

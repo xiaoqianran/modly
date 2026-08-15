@@ -31,6 +31,7 @@ const LOCAL_PREFIXES = [
   'shell:',
   'cache:',
   'ui:',
+  'modal:',
 ] as const
 
 const REPLACE = new Set([

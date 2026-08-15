@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAppStore, SetupProgress } from '@shared/stores/appStore'
+import type { ModalSessionConnectInput } from '@shared/modalSession'
 
 // ─── Logo (shared) ──────────────────────────────────────────────────────────
 
@@ -58,10 +59,14 @@ function ChoosePathPanel({
   platform: string
   arch: string
   onConfirm: (path: string) => void
-  onUseRemote: (apiUrl: string, token: string) => Promise<void>
+  onUseRemote: (input: ModalSessionConnectInput) => Promise<void>
 }): JSX.Element {
   const [selectedPath, setSelectedPath] = useState(defaultPath || '')
   const [remoteOpen, setRemoteOpen] = useState(false)
+  const [tokenId, setTokenId] = useState('')
+  const [tokenSecret, setTokenSecret] = useState('')
+  const [tokenSetCommand, setTokenSetCommand] = useState('')
+  const [workspaceHint, setWorkspaceHint] = useState('')
   const [remoteUrl, setRemoteUrl] = useState('')
   const [remoteToken, setRemoteToken] = useState('')
   const [remoteErr, setRemoteErr] = useState<string | null>(null)
@@ -79,7 +84,7 @@ function ChoosePathPanel({
   }
 
   return (
-    <div className="w-80 bg-surface-300 rounded-xl p-6">
+    <div className="w-96 bg-surface-300 rounded-xl p-6">
       <p className="text-sm font-medium text-zinc-100 mb-1">Choose a data folder</p>
       <p className="text-xs text-zinc-500 mb-4">
         Models can be several GB each. Choose a folder with plenty of free space.
@@ -121,10 +126,44 @@ function ChoosePathPanel({
 
       {remoteOpen && (
         <div className="mt-3 space-y-2">
+          <p className="text-[11px] text-zinc-500">
+            Stays in this app until you quit. Not written to the settings folder.
+          </p>
+          <input
+            value={tokenSetCommand}
+            onChange={(e) => { setTokenSetCommand(e.target.value); setRemoteErr(null) }}
+            placeholder="modal token set --token-id ak-… --token-secret as-…"
+            spellCheck={false}
+            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700/60 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+          />
+          <input
+            value={tokenId}
+            onChange={(e) => { setTokenId(e.target.value); setRemoteErr(null) }}
+            placeholder="token-id (ak-…)"
+            spellCheck={false}
+            autoComplete="off"
+            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700/60 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+          />
+          <input
+            type="password"
+            value={tokenSecret}
+            onChange={(e) => { setTokenSecret(e.target.value); setRemoteErr(null) }}
+            placeholder="token-secret (as-…)"
+            spellCheck={false}
+            autoComplete="off"
+            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700/60 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+          />
+          <input
+            value={workspaceHint}
+            onChange={(e) => { setWorkspaceHint(e.target.value); setRemoteErr(null) }}
+            placeholder="workspace name (optional fallback)"
+            spellCheck={false}
+            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700/60 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+          />
           <input
             value={remoteUrl}
             onChange={(e) => { setRemoteUrl(e.target.value); setRemoteErr(null) }}
-            placeholder="https://…modly-backend-fastapi-app.modal.run"
+            placeholder="or paste https://…modal.run"
             spellCheck={false}
             className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700/60 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
           />
@@ -132,27 +171,26 @@ function ChoosePathPanel({
             type="password"
             value={remoteToken}
             onChange={(e) => setRemoteToken(e.target.value)}
-            placeholder="Bearer token (optional)"
+            placeholder="FastAPI Bearer (optional, not the ak-/as- pair)"
             spellCheck={false}
             className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700/60 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
           />
           {remoteErr && <p className="text-xs text-red-400">{remoteErr}</p>}
           <button
             type="button"
-            disabled={remoteBusy || !remoteUrl.trim()}
+            disabled={remoteBusy || (!tokenSetCommand.trim() && !tokenId.trim() && !tokenSecret.trim() && !workspaceHint.trim() && !remoteUrl.trim())}
             onClick={async () => {
-              try {
-                const parsed = new URL(remoteUrl.trim())
-                if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-                  throw new Error('URL must be http(s)')
-                }
-              } catch {
-                setRemoteErr('Enter a valid Modal https URL')
-                return
-              }
               setRemoteBusy(true)
+              setRemoteErr(null)
               try {
-                await onUseRemote(remoteUrl.trim().replace(/\/+$/, ''), remoteToken.trim())
+                await onUseRemote({
+                  tokenSetCommand: tokenSetCommand.trim(),
+                  tokenId: tokenId.trim(),
+                  tokenSecret: tokenSecret.trim(),
+                  workspace: workspaceHint.trim(),
+                  apiUrl: remoteUrl.trim(),
+                  bearerToken: remoteToken.trim(),
+                })
               } catch (err) {
                 setRemoteErr(err instanceof Error ? err.message : String(err))
                 setRemoteBusy(false)
@@ -160,7 +198,7 @@ function ChoosePathPanel({
             }}
             className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 rounded-lg text-sm font-medium text-zinc-100 transition-colors"
           >
-            {remoteBusy ? 'Connecting…' : 'Connect to Modal'}
+            {remoteBusy ? 'Connecting…' : 'Connect this session'}
           </button>
         </div>
       )}
@@ -321,12 +359,9 @@ export default function FirstRunSetup(): JSX.Element {
             platform={platform}
             arch={arch}
             onConfirm={saveDataDir}
-            onUseRemote={async (apiUrl, token) => {
-              await window.electron.settings.set({
-                backendMode: 'remote',
-                remoteApiUrl: apiUrl,
-                remoteApiToken: token,
-              })
+            onUseRemote={async (input) => {
+              const result = await window.electron.modal.connect(input)
+              if (!result.ok) throw new Error(result.error ?? 'Could not start a Modal session')
               await checkSetup()
             }}
           />

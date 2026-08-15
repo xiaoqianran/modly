@@ -1,4 +1,5 @@
 import type { AppSettings, AppSettingsPatch } from '../../src/shared/types/appSettings'
+import type { ModalSessionConnectInput, ModalSessionPublic } from '../../src/shared/modalSession'
 import type {
   AssetLibraryListResult,
   AssetLibraryOpenRequest,
@@ -86,6 +87,16 @@ export function createElectronApi(ipcRenderer: IpcRendererLike, webFrame: WebFra
         ipcRenderer.invoke('fs:deleteDirectory', dirPath) as Promise<{ success: boolean; error?: string }>,
       readScreenshotDataUrl: (filename: string): Promise<string> =>
         ipcRenderer.invoke('fs:readScreenshotDataUrl', filename) as Promise<string>,
+    },
+
+    // In-memory Modal session (never written to settings.json)
+    modal: {
+      connect: (input: ModalSessionConnectInput) =>
+        ipcRenderer.invoke('modal:session:connect', input) as Promise<ModalSessionPublic & { ok: boolean; error?: string; warning?: string }>,
+      status: () =>
+        ipcRenderer.invoke('modal:session:status') as Promise<ModalSessionPublic>,
+      clear: () =>
+        ipcRenderer.invoke('modal:session:clear') as Promise<ModalSessionPublic>,
     },
 
     // Settings
