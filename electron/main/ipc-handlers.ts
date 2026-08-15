@@ -15,6 +15,8 @@ import {
   downloadModelFromHF,
 } from './model-downloader'
 import { getSettings, setSettings } from './settings-store'
+import { modalPrefsBody } from '../../src/shared/modalPrefs'
+import type { AppSettingsPatch } from '../../src/shared/types/appSettings'
 import { checkSetupNeeded, markSetupDone, runFullSetup, getVenvPythonExe, ensureSslPatch } from './python-setup'
 import { logger } from './logger'
 import { getProcessRunner, getPythonProcessRunner, getExtPythonExe, terminateProcessRunner, terminateAllProcessRunners } from './process-runner'
@@ -682,15 +684,7 @@ export function setupIpcHandlers(pythonBridge: PythonBridge, getWindow: WindowGe
     return getSettings(app.getPath('userData'))
   })
 
-  ipcMain.handle('settings:set', async (_event, patch: {
-    modelsDir?: string
-    workspaceDir?: string
-    extensionsDir?: string
-    hfToken?: string
-    backendMode?: 'local' | 'remote'
-    remoteApiUrl?: string
-    remoteApiToken?: string
-  }) => {
+  ipcMain.handle('settings:set', async (_event, patch: AppSettingsPatch) => {
     const updated = setSettings(app.getPath('userData'), patch)
     // Keep main-process env in sync so child processes spawned after token change inherit it
     if (patch.hfToken !== undefined) {
@@ -702,6 +696,11 @@ export function setupIpcHandlers(pythonBridge: PythonBridge, getWindow: WindowGe
       try {
         await axios.post(`${API_BASE_URL}/settings/hf-token`, { token: patch.hfToken }, { timeout: 3000 })
       } catch { /* FastAPI may not be running yet — ignore */ }
+    }
+    if (patch.gpuLingerSeconds !== undefined || patch.remoteGpu !== undefined) {
+      try {
+        await axios.post(`${API_BASE_URL}/settings/modal`, modalPrefsBody(updated), { timeout: 5000 })
+      } catch { /* FastAPI / Modal may not be running yet — ignore */ }
     }
     return updated
   })

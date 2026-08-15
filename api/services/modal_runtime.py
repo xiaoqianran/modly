@@ -132,9 +132,9 @@ def _set_gpu_autoscaler(*, scaledown_window: int) -> bool:
 
 def hold_gpu_for_retry() -> bool:
     """Successful spawn: keep the loaded model around for the next Generate."""
-    from services.modal_idle import ModalIdleSettings
+    from services.modal_prefs import linger_seconds
 
-    return _set_gpu_autoscaler(scaledown_window=ModalIdleSettings.from_env().gpu_scaledown_window)
+    return _set_gpu_autoscaler(scaledown_window=linger_seconds())
 
 
 def release_gpu_pool() -> bool:

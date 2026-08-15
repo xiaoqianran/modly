@@ -69,6 +69,8 @@ const WINDOWS_HTTP = [
   { op: 'getRun', method: 'GET', path: '/runs/job-1', gateway: 'proxy', sound: 'run' },
   { op: 'settingsHfToken', method: 'POST', path: '/settings/hf-token', gateway: 'proxy', sound: 'ok' },
   { op: 'settingsPaths', method: 'POST', path: '/settings/paths', gateway: 'proxy', sound: 'ok' },
+  { op: 'settingsModalGet', method: 'GET', path: '/settings/modal', gateway: 'proxy', sound: 'modal_prefs' },
+  { op: 'settingsModal', method: 'POST', path: '/settings/modal', gateway: 'proxy', sound: 'modal_prefs' },
   { op: 'exportGlb', method: 'GET', path: '/export/glb?path=Default%2Fa.glb', gateway: 'proxy', sound: 'file' },
 ] as const
 
@@ -191,6 +193,24 @@ test('every useApi HTTP path is classified so Windows generate/poll/cancel reach
   }
 })
 
+test('Python and desktop linger defaults stay 60', () => {
+  assert.match(readRepo('api/services/modal_idle.py'), /DEFAULT_GPU_SCALEDOWN = 60/)
+  assert.match(readRepo('src/shared/modalPrefs.ts'), /DEFAULT_GPU_LINGER_SECONDS = 60/)
+  assert.match(readRepo('api/services/modal_prefs.py'), /DEFAULT_LINGER_SECONDS = DEFAULT_GPU_SCALEDOWN/)
+})
+
+test('Modal GPU prefs live in Settings, not Generate / useApi', () => {
+  const settings = readRepo('src/areas/settings/components/ApplicationSection.tsx')
+  const generate = readRepo('src/areas/generate/GeneratePage.tsx')
+  const useApi = readRepo('src/shared/hooks/useApi.ts')
+  assert.ok(settings.includes('gpuLingerSeconds'))
+  assert.ok(settings.includes('remoteGpu'))
+  assert.equal(settings.includes('useApi'), false)
+  assert.equal(generate.includes('gpuLingerSeconds'), false)
+  assert.equal(useApi.includes('gpuLingerSeconds'), false)
+  assert.equal(useApi.includes('/settings/modal'), false)
+})
+
 test('GET /runs is never a cache-get (live ledger must not go stale)', async () => {
   const { classifyGatewayRequest, isCacheGetPath } = await loadGateway()
   assert.equal(isCacheGetPath('/runs'), false)
@@ -285,4 +305,14 @@ test('sound JSON shapes the Windows UI actually consumes', async () => {
 
   assert.equal(isDesktopIpcFallback({ fallback: true, detail: 'No Modal adapter' }), true)
   assert.equal(isDesktopIpcFallback({ success: true }), false)
+
+  const modalPrefs = {
+    lingerSeconds: 60,
+    gpu: 'L40S',
+    deployedGpu: 'L40S',
+    lingerAppliesImmediately: true,
+    gpuAppliesOnDeploy: true,
+  }
+  assert.equal(modalPrefs.lingerSeconds, 60)
+  assert.equal(typeof modalPrefs.gpu, 'string')
 })
