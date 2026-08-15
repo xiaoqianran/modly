@@ -64,7 +64,7 @@ npm run dev
 
 下面那个 **API token / Bearer** 是可选的 FastAPI 口令，**不是** `ak-` / `as-` 那一对。
 
-云端还没有 `modly-backend` 的话，token 只能查出 workspace，连不上应用。先在会 `modal` 的机器上 `modal deploy modal/app.py`。
+云端还没有 `modly-backend` 的话，Connect 会用这对 token 跑一次 `modal deploy modal/app.py`（本机要有 `modal` CLI，第一次编镜像可能要几分钟）。也可以自己先 deploy，再贴打印出来的 `https://…modal.run` URL。
 
 已经进主界面了，也可以：**Settings → Application → Compute backend → Modal → Connect this session**。停留秒数（默认 60）和 GPU 卡仍可「Save backend」记在这台电脑；CLI token 不会进 `settings.json`。
 

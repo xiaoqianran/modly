@@ -127,7 +127,7 @@ function ChoosePathPanel({
       {remoteOpen && (
         <div className="mt-3 space-y-2">
           <p className="text-[11px] text-zinc-500">
-            Stays in this app until you quit. Not written to the settings folder.
+            Stays in this app until you quit. If this workspace has no `modly-backend` yet, Connect deploys the CPU app (needs the `modal` CLI; first time can take several minutes).
           </p>
           <input
             value={tokenSetCommand}
@@ -228,7 +228,7 @@ function ChoosePathPanel({
             }}
             className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 rounded-lg text-sm font-medium text-zinc-100 transition-colors"
           >
-            {remoteBusy ? 'Connecting…' : 'Connect this session'}
+            {remoteBusy ? 'Connecting / deploying CPU…' : 'Connect this session'}
           </button>
         </div>
       )}

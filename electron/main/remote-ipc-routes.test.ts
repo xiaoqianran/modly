@@ -40,7 +40,7 @@ test('empty remote catalog keeps local model extensions', async () => {
     ],
     { extensions: [] },
   ) as Array<{ id: string }>
-  assert.deepEqual(merged.map((r) => r.id), ['smoother', 'hunyuan3d-mini'])
+  assert.deepEqual(merged.map((r) => r.id), ['smoother', 'hunyuan3d-mini', 'triposg', 'trellis-2'])
 })
 
 test('GET /model/all is the source of truth for downloaded flags', async () => {

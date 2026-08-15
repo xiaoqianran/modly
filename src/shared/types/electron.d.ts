@@ -187,7 +187,7 @@ declare global {
         readScreenshotDataUrl: (filename: string) => Promise<string>
       }
       modal: {
-        connect: (input: ModalSessionConnectInput) => Promise<ModalSessionPublic & { ok: boolean; error?: string; warning?: string }>
+        connect: (input: ModalSessionConnectInput) => Promise<ModalSessionPublic & { ok: boolean; error?: string; warning?: string; deployed?: boolean }>
         status: () => Promise<ModalSessionPublic>
         clear: () => Promise<ModalSessionPublic>
       }

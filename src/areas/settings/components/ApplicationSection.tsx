@@ -141,7 +141,7 @@ export function ApplicationSection(): JSX.Element {
             <div className="rounded-lg border border-zinc-700/60 bg-zinc-900/40 p-3 space-y-2">
               <p className="text-xs font-medium text-zinc-300">This-session tokens</p>
               <p className="text-[11px] text-zinc-500">
-                Paste your Modal CLI pair. The app looks up the workspace and builds the `.modal.run` URL. Nothing is written to the settings folder. Quit the app to forget.
+                Paste your Modal CLI pair. Connect looks up the workspace, checks the CPU URL, and deploys `modly-backend` if that hostname is not live yet (first time can take several minutes). Nothing is written to the settings folder. Quit the app to forget.
               </p>
               {session?.active && (
                 <p className="text-[11px] text-emerald-400/90 font-mono break-all">
@@ -225,7 +225,7 @@ export function ApplicationSection(): JSX.Element {
                     'bg-accent/15 hover:bg-accent/25 text-accent-light'
                   }`}
                 >
-                  {sessionStatus === 'saving' ? 'Connecting…' : sessionStatus === 'saved' ? 'Connected' : sessionStatus === 'error' ? 'Failed' : 'Connect this session'}
+                  {sessionStatus === 'saving' ? 'Connecting / deploying CPU…' : sessionStatus === 'saved' ? 'Connected' : sessionStatus === 'error' ? 'Failed' : 'Connect this session'}
                 </button>
                 {session?.active && (
                   <button

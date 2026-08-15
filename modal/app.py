@@ -54,7 +54,7 @@ from services.modal_idle import ModalIdleSettings  # noqa: E402
 
 IDLE = ModalIdleSettings.from_env()
 # `modal secret create modly-tokens HF_TOKEN=... GITHUB_TOKEN=...`
-TOKENS = modal.Secret.from_name("modly-tokens")
+TOKENS = modal.Secret.from_name("modly-tokens", create_if_missing=True)
 
 models_vol = modal.Volume.from_name("modly-models", create_if_missing=True)
 workspace_vol = modal.Volume.from_name("modly-workspace", create_if_missing=True)

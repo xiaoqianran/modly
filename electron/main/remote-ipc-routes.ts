@@ -3,6 +3,8 @@
  * No axios / Electron — tests and remote-ipc.ts share this table.
  */
 
+import { OFFICIAL_CATALOG_STUBS } from '../../src/shared/officialExtensionStubs'
+
 export type OverlayHttpCall = {
   method: 'GET' | 'POST'
   path: string
@@ -182,11 +184,24 @@ export function mergeCatalogLists(localListed: unknown, remotePayload: unknown):
   // Empty/failed Modal catalog must not wipe laptop model extensions — that is
   // what makes Generate toast "Extension is unavailable" on first connect.
   if (remote.length === 0) {
-    return local
+    return unionOfficialCatalogStubs(local)
   }
   const builtins = local.filter((item) => {
     const row = item as { builtin?: boolean; type?: string }
     return row.builtin === true || row.type === 'process'
   })
   return [...builtins, ...remote]
+}
+
+export function unionOfficialCatalogStubs(localListed: unknown): unknown[] {
+  const local = Array.isArray(localListed) ? localListed : []
+  const seen = new Set(
+    local
+      .map((item) => (item as { id?: string }).id)
+      .filter((id): id is string => Boolean(id)),
+  )
+  const extras = OFFICIAL_CATALOG_STUBS
+    .filter((stub) => !seen.has(stub.id))
+    .map((stub) => manifestToExtension(stub))
+  return [...local, ...extras]
 }
