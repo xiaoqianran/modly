@@ -87,9 +87,15 @@ never pins the GPU.
 
 ## Secrets
 
-Create these in the Modal dashboard, never in the repo:
+`modly-tokens` is **optional** for the first deploy. `Secret.from_name` does
+not take `create_if_missing` (that flag is only for Volume / Dict). Connect
+will still register the empty shell if the secret is missing.
+
+When you need HuggingFace / GitHub from the cloud, create the secret in the
+Modal dashboard (never in the repo) and Connect again:
 
 - HuggingFace: `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN`
+- Optional: `GITHUB_TOKEN`
 - Later: a random `MODLY_API_TOKEN` for Electron → Modal
 
 If a token was ever pasted into a chat, rotate it before deploying.

@@ -53,8 +53,29 @@ _api_on_path()
 from services.modal_idle import ModalIdleSettings  # noqa: E402
 
 IDLE = ModalIdleSettings.from_env()
-# `modal secret create modly-tokens HF_TOKEN=... GITHUB_TOKEN=...`
-TOKENS = modal.Secret.from_name("modly-tokens", create_if_missing=True)
+
+# Secret.from_name has no create_if_missing (unlike Volume/Dict). A missing
+# named secret must not block first deploy of the empty shell.
+import importlib.util  # noqa: E402
+
+def _load_workspace_secrets():
+    candidates = (
+        Path(__file__).resolve().parent / "workspace_secrets.py",
+        Path("/root/workspace_secrets.py"),
+    )
+    for path in candidates:
+        if not path.is_file():
+            continue
+        spec = importlib.util.spec_from_file_location("modly_workspace_secrets", path)
+        if spec is None or spec.loader is None:
+            continue
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    raise ImportError("modal/workspace_secrets.py is missing")
+
+
+TOKEN_SECRETS = _load_workspace_secrets().workspace_token_secrets(modal.Secret)
 
 models_vol = modal.Volume.from_name("modly-models", create_if_missing=True)
 workspace_vol = modal.Volume.from_name("modly-workspace", create_if_missing=True)
@@ -81,6 +102,10 @@ image = (
         }
     )
     .add_local_dir(str(REPO_API), remote_path=str(API_ROOT))
+    .add_local_file(
+        str(Path(__file__).resolve().parent / "workspace_secrets.py"),
+        remote_path="/root/workspace_secrets.py",
+    )
 )
 
 app = modal.App(APP_NAME, image=image)
@@ -122,7 +147,7 @@ OFFICIAL_REPOS = (
 
 @app.function(
     volumes=VOLUMES,
-    secrets=[TOKENS],
+    secrets=TOKEN_SECRETS,
     timeout=60 * 60,
     **IDLE.cpu_function_kwargs(),
 )
@@ -135,7 +160,7 @@ def fastapi_app():
 
 @app.function(
     volumes=VOLUMES,
-    secrets=[TOKENS],
+    secrets=TOKEN_SECRETS,
     timeout=60 * 60,
     cpu=4.0,
     memory=8192,
@@ -151,7 +176,7 @@ def hydrate_official_extensions():
 
 @app.function(
     volumes=VOLUMES,
-    secrets=[TOKENS],
+    secrets=TOKEN_SECRETS,
     timeout=6 * 60 * 60,
     cpu=8.0,
     memory=16384,
@@ -184,7 +209,7 @@ def hydrate_official_models():
 
 @app.function(
     volumes=VOLUMES,
-    secrets=[TOKENS],
+    secrets=TOKEN_SECRETS,
     timeout=60 * 60,
     **IDLE.gpu_function_kwargs(),
 )
@@ -221,7 +246,7 @@ def bake_official_extensions():
 
 @app.function(
     volumes=VOLUMES,
-    secrets=[TOKENS],
+    secrets=TOKEN_SECRETS,
     timeout=60,
     **IDLE.cpu_function_kwargs(),
 )
@@ -235,7 +260,7 @@ def dump_recent_runs(limit: int = 20):
 
 @app.cls(
     volumes=VOLUMES,
-    secrets=[TOKENS],
+    secrets=TOKEN_SECRETS,
     timeout=IDLE.gpu_timeout_seconds,
     **IDLE.gpu_cls_kwargs(),
 )
