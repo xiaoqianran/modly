@@ -6,9 +6,7 @@ import axios from 'axios'
 import { getSettings } from './settings-store'
 import { logger } from './logger'
 import { cleanPythonEnv, getVenvPythonExe } from './python-setup'
-import { overlayRemoteSettings } from './modal-session'
-import { resolveRemoteBackend } from './remote-backend'
-import { startRemoteGateway, type StartedGateway } from './remote-gateway'
+import { tryStartRemoteGateway, tryStopRemoteGateway } from './remote-bridge'
 
 const API_PORT = 8765
 const API_HOST = '127.0.0.1'
@@ -16,7 +14,6 @@ export const API_BASE_URL = `http://${API_HOST}:${API_PORT}`
 
 export class PythonBridge {
   private process: ChildProcess | null = null
-  private gateway: StartedGateway | null = null
   private ready = false
   private startPromise: Promise<void> | null = null
   private getWindow: (() => BrowserWindow | null) | null = null
@@ -37,12 +34,16 @@ export class PythonBridge {
     }
   }
 
-  private async _start(): Promise<void> {
-    const remote = resolveRemoteBackend(overlayRemoteSettings(getSettings(app.getPath('userData'))))
-    if (remote.enabled) {
-      await this.startGateway(remote.apiUrl, remote.token)
-      return
+  private remoteHost() {
+    return {
+      killProcessOnPort: () => this.killProcessOnPort(),
+      resolveWorkspaceDir: () => this.resolveWorkspaceDir(),
+      setReady: (ready: boolean) => { this.ready = ready },
     }
+  }
+
+  private async _start(): Promise<void> {
+    if (await tryStartRemoteGateway(this, this.remoteHost())) return
 
     if (this.process) {
       await this.waitUntilReady()
@@ -112,14 +113,7 @@ export class PythonBridge {
   }
 
   async stop(): Promise<void> {
-    if (this.gateway) {
-      const gateway = this.gateway
-      this.gateway = null
-      this.ready = false
-      await gateway.stop()
-      console.log('[PythonBridge] Remote gateway stopped')
-      return
-    }
+    if (await tryStopRemoteGateway(this, this.remoteHost())) return
     if (!this.process) return
     const proc = this.process
     this.process = null
@@ -193,52 +187,19 @@ export class PythonBridge {
     }
   }
 
-  private async startGateway(upstreamUrl: string, token: string): Promise<void> {
-    if (this.gateway) {
-      await this.waitUntilReady({ requireProcess: false })
-      return
-    }
-
-    console.log('[PythonBridge] Starting remote gateway →', upstreamUrl)
-    await this.killProcessOnPort()
-    this.gateway = await startRemoteGateway({
-      host: API_HOST,
-      port: API_PORT,
-      upstreamUrl,
-      token,
-      workspaceDir: this.resolveWorkspaceDir(),
-    })
-    await this.waitUntilReady({ requireProcess: false, delayMs: 200 })
-  }
-
-  private async waitUntilReady(
-    maxRetriesOrOpts: number | { requireProcess?: boolean; maxRetries?: number; delayMs?: number } = 180,
-    delayMs = 500,
-  ): Promise<void> {
-    const opts = typeof maxRetriesOrOpts === 'number'
-      ? { requireProcess: true, maxRetries: maxRetriesOrOpts, delayMs }
-      : {
-          requireProcess: maxRetriesOrOpts.requireProcess ?? true,
-          maxRetries: maxRetriesOrOpts.maxRetries ?? 180,
-          delayMs: maxRetriesOrOpts.delayMs ?? 500,
-        }
-
-    for (let i = 0; i < opts.maxRetries; i++) {
-      if (opts.requireProcess && !this.process) throw new Error('FastAPI process exited unexpectedly during startup')
+  private async waitUntilReady(maxRetries = 180, delayMs = 500): Promise<void> {
+    for (let i = 0; i < maxRetries; i++) {
+      if (!this.process) throw new Error('FastAPI process exited unexpectedly during startup')
       try {
         await axios.get(`${API_BASE_URL}/health`, { timeout: 2000 })
         this.ready = true
-        console.log(this.gateway
-          ? '[PythonBridge] Remote gateway is ready (local /health; Modal stays scaled to 0 until generate)'
-          : '[PythonBridge] FastAPI is ready')
+        console.log('[PythonBridge] FastAPI is ready')
         return
       } catch {
-        await new Promise((r) => setTimeout(r, opts.delayMs))
+        await new Promise((r) => setTimeout(r, delayMs))
       }
     }
-    throw new Error(this.gateway
-      ? 'Remote Modal backend did not become ready in time'
-      : 'FastAPI did not start in time')
+    throw new Error('FastAPI did not start in time')
   }
 
   private resolvePythonExecutable(): string {

@@ -524,12 +524,12 @@ export function setupIpcHandlers(pythonBridge: PythonBridge, getWindow: WindowGe
   })
 
   // Model management
-  ipcMain.handle('model:listDownloaded', async () => {
+  ipcMain.handle('model:listDownloaded', () => {
     const modelsDir = getSettings(app.getPath('userData')).modelsDir
     return listDownloadedModels(modelsDir)
   })
 
-  ipcMain.handle('model:isDownloaded', async (_, modelId: string, downloadCheck?: string): Promise<boolean> => {
+  ipcMain.handle('model:isDownloaded', (_, modelId: string, downloadCheck?: string): boolean => {
     const modelsDir = getSettings(app.getPath('userData')).modelsDir
     return isModelDownloaded(modelsDir, modelId, downloadCheck)
   })
@@ -682,15 +682,7 @@ export function setupIpcHandlers(pythonBridge: PythonBridge, getWindow: WindowGe
     return getSettings(app.getPath('userData'))
   })
 
-  ipcMain.handle('settings:set', async (_event, patch: {
-    modelsDir?: string
-    workspaceDir?: string
-    extensionsDir?: string
-    hfToken?: string
-    backendMode?: 'local' | 'remote'
-    remoteApiUrl?: string
-    remoteApiToken?: string
-  }) => {
+  ipcMain.handle('settings:set', async (_event, patch: { modelsDir?: string; workspaceDir?: string; extensionsDir?: string; hfToken?: string }) => {
     const updated = setSettings(app.getPath('userData'), patch)
     // Keep main-process env in sync so child processes spawned after token change inherit it
     if (patch.hfToken !== undefined) {
@@ -953,8 +945,7 @@ export function setupIpcHandlers(pythonBridge: PythonBridge, getWindow: WindowGe
   // Extensions — reads user extensions directory + built-in extensions directory
   ipcMain.handle('extensions:list', async () => {
     const userData      = app.getPath('userData')
-    const settings      = getSettings(userData)
-    const extensionsDir = settings.extensionsDir
+    const extensionsDir = getSettings(userData).extensionsDir
     const builtinDir    = getBuiltinExtensionsDir()
 
     const trustedRepos = await fetchTrustedRepos()

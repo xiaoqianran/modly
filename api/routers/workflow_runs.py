@@ -7,9 +7,12 @@ from pydantic import BaseModel
 from routers.generation import _run_generation
 from schemas.generation import JobStatus
 from services.generator_registry import generator_registry
-from services.job_store import get_job_store
-from services.modal_runtime import is_modal_runtime, spawn_gpu_generation, stop_run_compute
-from services.run_tracker import apply_status_watch, mark_cancel, note_spawn, note_spawn_failed, open_run
+from services.generation_overlay import (
+    cancel as overlay_cancel,
+    dispatch_from_image,
+    get_job,
+    put_pending,
+)
 
 router = APIRouter(tags=["workflow-runs"])
 
@@ -56,21 +59,10 @@ async def create_run_from_image(
     job_id = str(uuid.uuid4())
     image_bytes = await image.read()
 
-    store = get_job_store()
-    store.put(JobStatus(job_id=job_id, status="pending", progress=0))
-    store.cancel_event(job_id)
-    open_run(job_id, model_id, "workflow")
-
-    spawned = spawn_gpu_generation(job_id, model_id, image_bytes, full_params, "Default")
-    if spawned.started:
-        note_spawn(job_id, spawned.call_id)
-        return {"run_id": job_id, "status": "pending"}
-
-    if is_modal_runtime():
-        err = spawned.error or "GPU worker spawn failed"
-        note_spawn_failed(job_id, err)
-        store.update(job_id, status="error", error=err)
-        return {"run_id": job_id, "status": "error"}
+    put_pending(JobStatus(job_id=job_id, status="pending", progress=0))
+    if dispatch_from_image(job_id, model_id, image_bytes, full_params, "Default", kind="workflow"):
+        job = get_job(job_id)
+        return {"run_id": job_id, "status": job.status if job else "pending"}
 
     background_tasks.add_task(_run_generation, job_id, image_bytes, full_params, "Default")
 
@@ -79,11 +71,9 @@ async def create_run_from_image(
 
 @router.get("/{run_id}", response_model=WorkflowRunStatus)
 async def get_run(run_id: str):
-    job = get_job_store().get(run_id)
+    job = get_job(run_id)
     if not job:
         raise HTTPException(404, f"Run {run_id} not found")
-    if apply_status_watch(run_id):
-        job = get_job_store().get(run_id) or job
 
     scene_candidate = None
     if job.status == "done" and job.output_url:
@@ -102,14 +92,8 @@ async def get_run(run_id: str):
 
 @router.post("/{run_id}/cancel")
 async def cancel_run(run_id: str):
-    store = get_job_store()
-    job = store.get(run_id)
-    if not job:
+    if not overlay_cancel(run_id, "workflow cancel"):
         raise HTTPException(404, f"Run {run_id} not found")
-
-    store.mark_cancel(run_id)
-    stop_run_compute(run_id)
-    mark_cancel(run_id, "workflow cancel")
 
     try:
         gen = generator_registry._generators.get(generator_registry._active_id)
