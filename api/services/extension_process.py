@@ -28,10 +28,23 @@ _AUTO_REPAIR_PACKAGE_MAP = {
 
 
 def _venv_python(ext_dir: Path) -> Path:
-    """Returns the path to the venv's Python executable."""
+    """Returns the path to the venv's Python executable.
+
+    If `MODLY_EXT_VENV_ROOT/{ext}/venv` already exists (Modal stages the
+    Volume venv onto local disk), prefer that so imports are not FUSE.
+    """
     if platform.system() == "Windows":
-        return ext_dir / "venv" / "Scripts" / "python.exe"
-    return ext_dir / "venv" / "bin" / "python"
+        native = ext_dir / "venv" / "Scripts" / "python.exe"
+        staged_name = "Scripts/python.exe"
+    else:
+        native = ext_dir / "venv" / "bin" / "python"
+        staged_name = "bin/python"
+    root = os.environ.get("MODLY_EXT_VENV_ROOT", "").strip()
+    if root:
+        staged = Path(root) / ext_dir.name / "venv" / staged_name
+        if staged.exists():
+            return staged
+    return native
 
 
 class ExtensionProcess:

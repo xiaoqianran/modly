@@ -299,8 +299,10 @@ class GpuGenerator:
             STEP_COMMITTING,
             STEP_GENERATING,
             STEP_LOADING,
+            STEP_STAGING,
             model_weights_ready,
         )
+        from services.modal_ext_venv import stage_generator_venv
         from services.job_store import get_job_store
         from services.run_tracker import gpu_enter, gpu_leave, gpu_step
 
@@ -338,6 +340,11 @@ class GpuGenerator:
                     f"Model weights for {model_id} are not on the Volume. "
                     "Download runs on CPU only; GPU only loads VRAM."
                 )
+            store.update(job_id, step=STEP_STAGING)
+            gpu_step(job_id, STEP_STAGING)
+            stage_generator_venv(self.registry, model_id)
+            store.update(job_id, step=STEP_LOADING)
+            gpu_step(job_id, STEP_LOADING)
             if store.is_cancelled(job_id):
                 raise GenerationCancelled()
             gen = self.registry.get_active()

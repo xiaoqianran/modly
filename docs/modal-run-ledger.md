@@ -20,8 +20,9 @@ CPU ASGI  api/main.py
   权重已在         → spawn GpuGenerator.generate
         │                         FunctionCall.object_id 写入账本
         ▼
-GPU Cls   reload Volume → load VRAM → generate → finally gpu_leave
-          （GPU 不再 snapshot_download）
+GPU Cls   reload Volume → stage venv 到本地盘 → load VRAM → generate
+          （GPU 不再 snapshot_download。Volume 上的 torch venv 不能直接 import，
+          否则 runner 会在 D-state 卡十几分钟、L40S 利用率 0%）
         │
         ▼
 GET /generate/status  每秒            touch_poll + 超时则 cancel

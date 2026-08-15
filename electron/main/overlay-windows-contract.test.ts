@@ -308,6 +308,16 @@ test('Settings shows live remote runs without going through useApi', () => {
   assert.equal(readRepo('src/areas/generate/GeneratePage.tsx').includes('/runs'), false)
 })
 
+test('Modal GPU stages Volume venvs onto local disk before load', () => {
+  const staging = readRepo('api/services/modal_ext_venv.py')
+  const ext = readRepo('api/services/extension_process.py')
+  const app = readRepo('modal/app.py')
+  assert.match(staging, /stage_volume_venv/)
+  assert.match(ext, /MODLY_EXT_VENV_ROOT/)
+  assert.match(app, /stage_generator_venv/)
+  assert.match(app, /STEP_STAGING/)
+})
+
 test('missing weights hydrate on CPU then spawn GPU; GPU never snapshot_download', () => {
   const overlay = readRepo('api/services/generation_overlay.py')
   const runtime = readRepo('api/services/modal_runtime.py')
